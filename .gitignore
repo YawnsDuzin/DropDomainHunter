@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# 환경 설정
+.env
+.env.local
+.env.*.local
+
+# 로그
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 테스트
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 빌드
+dist/
+build/
+*.egg-info/
+
+# 임시 파일
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}Domain Sniper - 설정{% endblock %}
+
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-gear"></i> 시스템 설정</h2>
+
+<div class="row">
+    <div class="col-lg-6">
+        <!-- 크롤링 설정 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-cloud-download"></i> 크롤링 설정</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-dark table-bordered mb-0">
+                    <tr>
+                        <th>전체 스캔 주기</th>
+                        <td>{{ settings.crawl_full_interval_hours }}시간 (매일 06:00)</td>
+                    </tr>
+                    <tr>
+                        <th>7일 스캔 주기</th>
+                        <td>{{ settings.crawl_week_interval_hours }}시간</td>
+                    </tr>
+                    <tr>
+                        <th>1일 스캔 주기</th>
+                        <td>{{ settings.crawl_day_interval_minutes }}분</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- 도메인 필터 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-funnel"></i> 도메인 필터</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-dark table-bordered mb-0">
+                    <tr>
+                        <th>최소 길이</th>
+                        <td>{{ settings.min_domain_length }}자</td>
+                    </tr>
+                    <tr>
+                        <th>최대 길이</th>
+                        <td>{{ settings.max_domain_length }}자</td>
+                    </tr>
+                    <tr>
+                        <th>허용 TLD</th>
+                        <td><code>{{ settings.allowed_tlds }}</code></td>
+                    </tr>
+                    <tr>
+                        <th>숫자 허용</th>
+                        <td>
+                            {% if settings.allow_numbers %}
+                                <span class="badge bg-success">예</span>
+                            {% else %}
+                                <span class="badge bg-danger">아니오</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>하이픈 허용</th>
+                        <td>
+                            {% if settings.allow_hyphens %}
+                                <span class="badge bg-success">예</span>
+                            {% else %}
+                                <span class="badge bg-danger">아니오</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <!-- 알림 설정 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bell"></i> 알림 설정</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-dark table-bordered mb-0">
+                    <tr>
+                        <th>최소 알림 점수</th>
+                        <td>{{ settings.min_score_alert }}점</td>
+                    </tr>
+                    <tr>
+                        <th>일일 리포트 시간</th>
+                        <td>{{ settings.daily_report_time }}</td>
+                    </tr>
+                    <tr>
+                        <th>Telegram</th>
+                        <td>
+                            {% if settings.telegram_bot_token %}
+                                <span class="badge bg-success">설정됨</span>
+                            {% else %}
+                                <span class="badge bg-secondary">미설정</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Discord</th>
+                        <td>
+                            {% if settings.discord_webhook_url %}
+                                <span class="badge bg-success">설정됨</span>
+                            {% else %}
+                                <span class="badge bg-secondary">미설정</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>하트비트</th>
+                        <td>
+                            {% if settings.heartbeat_interval_minutes > 0 %}
+                                {{ settings.heartbeat_interval_minutes }}분마다
+                            {% else %}
+                                <span class="badge bg-secondary">비활성화</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- 시스템 정보 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-cpu"></i> 시스템 정보</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-dark table-bordered mb-0">
+                    <tr>
+                        <th>웹 대시보드</th>
+                        <td>
+                            <span class="badge bg-success">활성화</span>
+                            (포트 {{ settings.web_port }})
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>데이터베이스</th>
+                        <td><code>{{ settings.database_path }}</code></td>
+                    </tr>
+                    <tr>
+                        <th>로그 레벨</th>
+                        <td>{{ settings.log_level }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- 안내 -->
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            <strong>설정 변경 방법</strong><br>
+            설정을 변경하려면 <code>.env</code> 파일을 수정한 후 서비스를 재시작하세요.
+            <br><br>
+            <code>sudo systemctl restart domain-sniper</code>
+        </div>
+    </div>
+</div>
+{% endblock %}

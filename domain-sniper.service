@@ -1,0 +1,57 @@
+# Domain Sniper - systemd 서비스 파일
+# 복사: sudo cp domain-sniper.service /etc/systemd/system/
+# 활성화: sudo systemctl enable domain-sniper
+# 시작: sudo systemctl start domain-sniper
+
+[Unit]
+Description=Domain Sniper - 도메인 스나이핑 서비스
+Documentation=https://github.com/YawnsDuzin/DropDomainHunter
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+
+# 작업 디렉토리 (라즈베리파이 기본 경로)
+WorkingDirectory=/home/pi/domain-sniper
+
+# 실행 명령어
+ExecStart=/home/pi/domain-sniper/venv/bin/python main.py
+
+# 재시작 설정
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# 환경 변수
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# 표준 출력/에러 -> journald
+StandardOutput=journal
+StandardError=journal
+
+# 리소스 제한 (라즈베리파이 보호)
+MemoryMax=512M
+MemoryHigh=400M
+CPUQuota=50%
+
+# 파일 시스템 보호
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pi/domain-sniper
+
+# 네트워크 접근 허용
+PrivateNetwork=false
+
+# Watchdog 설정 (5분 이내 응답 없으면 재시작)
+WatchdogSec=300
+
+# 종료 대기 시간
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
