@@ -75,12 +75,45 @@ class ExpiredDomainsCrawler:
             # 로그인 페이지 먼저 방문 (쿠키 설정)
             login_page = await self.client.get(self.LOGIN_URL)
 
-            # 로그인 요청 - ExpiredDomains.net 폼 필드명
-            login_data = {
-                "login": settings.expired_domains_username,
-                "password": settings.expired_domains_password,
-                "remember_me": "1",
-            }
+            # 디버그: 로그인 페이지 HTML 저장
+            try:
+                with open("/tmp/expireddomains_login_page.html", "w", encoding="utf-8") as f:
+                    f.write(login_page.text)
+                logger.info("login_page_saved", file="/tmp/expireddomains_login_page.html")
+            except Exception:
+                pass
+
+            # BeautifulSoup으로 폼 필드 추출
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(login_page.text, "lxml")
+            form = soup.find("form")
+
+            # 폼 필드 동적 추출
+            login_data = {}
+            if form:
+                for inp in form.find_all("input"):
+                    name = inp.get("name")
+                    if not name:
+                        continue
+                    input_type = inp.get("type", "text")
+                    if input_type == "hidden":
+                        login_data[name] = inp.get("value", "")
+                    elif "user" in name.lower() or "login" in name.lower() or "email" in name.lower():
+                        login_data[name] = settings.expired_domains_username
+                    elif "pass" in name.lower():
+                        login_data[name] = settings.expired_domains_password
+                    elif "remember" in name.lower():
+                        login_data[name] = "1"
+
+            # 폼을 찾지 못한 경우 기본값 사용
+            if not login_data or len(login_data) < 2:
+                login_data = {
+                    "login": settings.expired_domains_username,
+                    "password": settings.expired_domains_password,
+                    "remember_me": "1",
+                }
+
+            logger.info("login_form_data", fields=list(login_data.keys()))
 
             response = await self.client.post(
                 self.LOGIN_URL,
@@ -91,6 +124,14 @@ class ExpiredDomainsCrawler:
                     "Origin": "https://www.expireddomains.net",
                 }
             )
+
+            # 디버그: 로그인 응답 HTML 저장
+            try:
+                with open("/tmp/expireddomains_login_response.html", "w", encoding="utf-8") as f:
+                    f.write(response.text)
+                logger.info("login_response_saved", file="/tmp/expireddomains_login_response.html")
+            except Exception:
+                pass
 
             # 로그인 성공 확인 방법들:
             # 1. 응답에 "logout" 링크가 있으면 성공
