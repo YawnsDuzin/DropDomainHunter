@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}"
 echo "╔═══════════════════════════════════════════════════════╗"
 echo "║                                                       ║"
-echo "║   🎯  Domain Sniper - 설치 스크립트                   ║"
+echo "║   🎯  Domain Sniper - 설치 스크립트                    ║"
 echo "║       Raspberry Pi 4 Edition                          ║"
 echo "║                                                       ║"
 echo "╚═══════════════════════════════════════════════════════╝"

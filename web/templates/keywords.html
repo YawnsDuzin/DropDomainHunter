@@ -1,0 +1,468 @@
+{% extends "base.html" %}
+
+{% block title %}{{ settings.program_name }} - 키워드 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-tags"></i> 키워드 관리</h2>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addKeywordModal">
+        <i class="bi bi-plus-lg"></i> 키워드 추가
+    </button>
+</div>
+
+<div class="row">
+    <!-- 커스텀 키워드 섹션 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-star-fill text-warning"></i> 커스텀 키워드</h5>
+                <span id="customCount" class="badge bg-primary">0</span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="customSearch" placeholder="키워드 검색...">
+                </div>
+                <div id="customKeywords" class="keywords-container" style="max-height: 500px; overflow-y: auto;">
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-hourglass-split"></i> 로딩 중...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 기본 키워드 섹션 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-database"></i> 기본 키워드</h5>
+                <span id="defaultCount" class="badge bg-secondary">0</span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="defaultSearch" placeholder="키워드 검색...">
+                </div>
+                <div class="mb-3">
+                    <div class="btn-group btn-group-sm w-100" role="group">
+                        <button type="button" class="btn btn-outline-secondary category-filter active" data-category="all">전체</button>
+                        <button type="button" class="btn btn-outline-info category-filter" data-category="TECH">Tech</button>
+                        <button type="button" class="btn btn-outline-success category-filter" data-category="FINANCE">Finance</button>
+                        <button type="button" class="btn btn-outline-warning category-filter" data-category="BUSINESS">Business</button>
+                        <button type="button" class="btn btn-outline-primary category-filter" data-category="GENERIC">Generic</button>
+                    </div>
+                </div>
+                <div id="defaultKeywords" class="keywords-container" style="max-height: 450px; overflow-y: auto;">
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-hourglass-split"></i> 로딩 중...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 안내 -->
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i>
+    <strong>키워드 점수 가이드</strong><br>
+    <ul class="mb-0 mt-2">
+        <li><strong>90-100점:</strong> 최고 가치 키워드 (ai, crypto, pay 등)</li>
+        <li><strong>80-89점:</strong> 고가치 키워드 (cloud, data, market 등)</li>
+        <li><strong>70-79점:</strong> 중가치 키워드 (find, create, travel 등)</li>
+        <li><strong>60-69점:</strong> 저가치 키워드</li>
+    </ul>
+</div>
+
+<!-- 키워드 추가 모달 -->
+<div class="modal fade" id="addKeywordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 커스텀 키워드 추가</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="addKeywordForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="newKeyword" class="form-label">키워드</label>
+                        <input type="text" class="form-control" id="newKeyword" name="keyword"
+                               placeholder="예: startup" required maxlength="20">
+                        <div class="form-text">영문 소문자, 최대 20자</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newCategory" class="form-label">분류</label>
+                        <select class="form-select" id="newCategory" name="category">
+                            <option value="TECH">Tech</option>
+                            <option value="FINANCE">Finance</option>
+                            <option value="BUSINESS">Business</option>
+                            <option value="GENERIC" selected>Generic</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newScore" class="form-label">점수 (0-100)</label>
+                        <input type="range" class="form-range" id="newScoreRange" min="0" max="100" value="80">
+                        <div class="d-flex justify-content-between">
+                            <input type="number" class="form-control form-control-sm w-25" id="newScore" name="score"
+                                   value="80" min="0" max="100" required>
+                            <span class="text-muted small">높을수록 고가치 키워드</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-plus-lg"></i> 추가
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 키워드 수정 모달 -->
+<div class="modal fade" id="editKeywordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> 키워드 수정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editKeywordForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">키워드</label>
+                        <input type="text" class="form-control" id="editKeyword" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editCategory" class="form-label">분류</label>
+                        <select class="form-select" id="editCategory" name="category">
+                            <option value="TECH">Tech</option>
+                            <option value="FINANCE">Finance</option>
+                            <option value="BUSINESS">Business</option>
+                            <option value="GENERIC" selected>Generic</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editScore" class="form-label">점수 (0-100)</label>
+                        <input type="range" class="form-range" id="editScoreRange" min="0" max="100" value="80">
+                        <div class="d-flex justify-content-between">
+                            <input type="number" class="form-control form-control-sm w-25" id="editScore" name="score"
+                                   value="80" min="0" max="100" required>
+                            <span class="text-muted small">높을수록 고가치 키워드</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg"></i> 저장
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .keyword-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        transition: background-color 0.2s;
+    }
+
+    .keyword-item:hover {
+        background-color: var(--table-hover-bg);
+    }
+
+    .keyword-item:last-child {
+        border-bottom: none;
+    }
+
+    .keyword-name {
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-weight: 500;
+    }
+
+    .keyword-score {
+        min-width: 50px;
+        text-align: center;
+    }
+
+    .keyword-actions {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+    .keyword-actions .btn {
+        padding: 0.125rem 0.375rem;
+        font-size: 0.75rem;
+    }
+
+    .category-badge {
+        font-size: 0.65rem;
+        padding: 0.15rem 0.35rem;
+    }
+
+    .keywords-container:empty::after {
+        content: '키워드가 없습니다.';
+        display: block;
+        text-align: center;
+        color: var(--muted-color);
+        padding: 2rem;
+    }
+
+    .no-results {
+        text-align: center;
+        color: var(--muted-color);
+        padding: 2rem;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allKeywords = { default: [], custom: [] };
+let selectedCategory = 'all';
+
+// 페이지 로드 시 키워드 로드
+document.addEventListener('DOMContentLoaded', () => {
+    loadKeywords();
+
+    // 점수 슬라이더 동기화
+    document.getElementById('newScoreRange').addEventListener('input', (e) => {
+        document.getElementById('newScore').value = e.target.value;
+    });
+    document.getElementById('newScore').addEventListener('input', (e) => {
+        document.getElementById('newScoreRange').value = e.target.value;
+    });
+    document.getElementById('editScoreRange').addEventListener('input', (e) => {
+        document.getElementById('editScore').value = e.target.value;
+    });
+    document.getElementById('editScore').addEventListener('input', (e) => {
+        document.getElementById('editScoreRange').value = e.target.value;
+    });
+
+    // 키워드 추가 폼
+    document.getElementById('addKeywordForm').addEventListener('submit', addKeyword);
+
+    // 키워드 수정 폼
+    document.getElementById('editKeywordForm').addEventListener('submit', updateKeyword);
+
+    // 검색 필터
+    document.getElementById('customSearch').addEventListener('input', () => renderCustomKeywords());
+    document.getElementById('defaultSearch').addEventListener('input', () => renderDefaultKeywords());
+
+    // 카테고리 필터
+    document.querySelectorAll('.category-filter').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.category-filter').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            selectedCategory = e.target.dataset.category;
+            renderDefaultKeywords();
+        });
+    });
+});
+
+async function loadKeywords() {
+    try {
+        const response = await fetch('/api/keywords');
+        allKeywords = await response.json();
+
+        document.getElementById('customCount').textContent = allKeywords.custom.length;
+        document.getElementById('defaultCount').textContent = allKeywords.default.length;
+
+        renderCustomKeywords();
+        renderDefaultKeywords();
+    } catch (error) {
+        showToast('danger', '키워드 로드 실패: ' + error.message);
+    }
+}
+
+function renderCustomKeywords() {
+    const container = document.getElementById('customKeywords');
+    const searchTerm = document.getElementById('customSearch').value.toLowerCase();
+
+    const filtered = allKeywords.custom.filter(k =>
+        k.keyword.toLowerCase().includes(searchTerm)
+    );
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="no-results">
+                ${allKeywords.custom.length === 0 ?
+                    '<i class="bi bi-inbox"></i><br>커스텀 키워드가 없습니다.<br><small>위의 "키워드 추가" 버튼으로 추가해보세요.</small>' :
+                    '검색 결과가 없습니다.'}
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = filtered.map(k => `
+        <div class="keyword-item">
+            <div>
+                <span class="keyword-name">${k.keyword}</span>
+                <span class="badge category-badge bg-${getCategoryColor(k.category)}">${k.category}</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-${getScoreColor(k.score)} keyword-score">${k.score}</span>
+                <div class="keyword-actions">
+                    <button class="btn btn-outline-primary btn-sm" onclick="openEditModal('${k.keyword}', ${k.score}, '${k.category}')" title="수정">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="deleteKeyword('${k.keyword}')" title="삭제">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderDefaultKeywords() {
+    const container = document.getElementById('defaultKeywords');
+    const searchTerm = document.getElementById('defaultSearch').value.toLowerCase();
+
+    let filtered = allKeywords.default.filter(k =>
+        k.keyword.toLowerCase().includes(searchTerm)
+    );
+
+    if (selectedCategory !== 'all') {
+        filtered = filtered.filter(k => k.category === selectedCategory);
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="no-results">검색 결과가 없습니다.</div>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(k => `
+        <div class="keyword-item">
+            <div>
+                <span class="keyword-name">${k.keyword}</span>
+                <span class="badge category-badge bg-${getCategoryColor(k.category)}">${k.category}</span>
+            </div>
+            <span class="badge bg-${getScoreColor(k.score)} keyword-score">${k.score}</span>
+        </div>
+    `).join('');
+}
+
+function getCategoryColor(category) {
+    const colors = {
+        'TECH': 'info',
+        'FINANCE': 'success',
+        'BUSINESS': 'warning',
+        'GENERIC': 'secondary'
+    };
+    return colors[category] || 'secondary';
+}
+
+function getScoreColor(score) {
+    if (score >= 90) return 'danger';
+    if (score >= 80) return 'warning';
+    if (score >= 70) return 'info';
+    return 'secondary';
+}
+
+async function addKeyword(e) {
+    e.preventDefault();
+
+    const keyword = document.getElementById('newKeyword').value.toLowerCase().trim();
+    const score = parseInt(document.getElementById('newScore').value);
+    const category = document.getElementById('newCategory').value;
+
+    const formData = new FormData();
+    formData.append('keyword', keyword);
+    formData.append('score', score);
+    formData.append('category', category);
+
+    try {
+        const response = await fetch('/api/keywords', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('success', result.message);
+            bootstrap.Modal.getInstance(document.getElementById('addKeywordModal')).hide();
+            document.getElementById('addKeywordForm').reset();
+            document.getElementById('newScore').value = 80;
+            document.getElementById('newScoreRange').value = 80;
+            document.getElementById('newCategory').value = 'GENERIC';
+            loadKeywords();
+        } else {
+            showToast('danger', result.message);
+        }
+    } catch (error) {
+        showToast('danger', '키워드 추가 실패: ' + error.message);
+    }
+}
+
+function openEditModal(keyword, score, category) {
+    document.getElementById('editKeyword').value = keyword;
+    document.getElementById('editScore').value = score;
+    document.getElementById('editScoreRange').value = score;
+    document.getElementById('editCategory').value = category || 'GENERIC';
+    new bootstrap.Modal(document.getElementById('editKeywordModal')).show();
+}
+
+async function updateKeyword(e) {
+    e.preventDefault();
+
+    const keyword = document.getElementById('editKeyword').value;
+    const score = parseInt(document.getElementById('editScore').value);
+    const category = document.getElementById('editCategory').value;
+
+    const formData = new FormData();
+    formData.append('score', score);
+    formData.append('category', category);
+
+    try {
+        const response = await fetch(`/api/keywords/${encodeURIComponent(keyword)}`, {
+            method: 'PUT',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('success', result.message);
+            bootstrap.Modal.getInstance(document.getElementById('editKeywordModal')).hide();
+            loadKeywords();
+        } else {
+            showToast('danger', result.message);
+        }
+    } catch (error) {
+        showToast('danger', '키워드 수정 실패: ' + error.message);
+    }
+}
+
+async function deleteKeyword(keyword) {
+    if (!confirm(`'${keyword}' 키워드를 삭제하시겠습니까?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/keywords/${encodeURIComponent(keyword)}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('success', result.message);
+            loadKeywords();
+        } else {
+            showToast('danger', result.message);
+        }
+    } catch (error) {
+        showToast('danger', '키워드 삭제 실패: ' + error.message);
+    }
+}
+</script>
+{% endblock %}

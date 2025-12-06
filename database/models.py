@@ -213,7 +213,11 @@ class Database:
         min_score: Optional[int] = None,
         status: Optional[str] = None,
         days_until_expiry: Optional[int] = None,
-        order_by: str = "total_score DESC"
+        order_by: str = "total_score DESC",
+        tld: Optional[str] = None,
+        search: Optional[str] = None,
+        min_length: Optional[int] = None,
+        max_length: Optional[int] = None,
     ) -> List[Domain]:
         """도메인 목록 조회"""
         conditions = []
@@ -231,6 +235,22 @@ class Database:
             conditions.append("expiry_date <= date('now', '+' || ? || ' days')")
             params.append(days_until_expiry)
 
+        if tld:
+            conditions.append("tld = ?")
+            params.append(tld)
+
+        if search:
+            conditions.append("name LIKE ?")
+            params.append(f"%{search}%")
+
+        if min_length is not None:
+            conditions.append("length >= ?")
+            params.append(min_length)
+
+        if max_length is not None:
+            conditions.append("length <= ?")
+            params.append(max_length)
+
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
         query = f"""
@@ -243,6 +263,62 @@ class Database:
         cursor = await self._connection.execute(query, params)
         rows = await cursor.fetchall()
         return [self._row_to_domain(row) for row in rows]
+
+    async def get_total_count(
+        self,
+        min_score: Optional[int] = None,
+        status: Optional[str] = None,
+        days_until_expiry: Optional[int] = None,
+        tld: Optional[str] = None,
+        search: Optional[str] = None,
+        min_length: Optional[int] = None,
+        max_length: Optional[int] = None,
+    ) -> int:
+        """필터 조건에 맞는 총 개수 조회"""
+        conditions = []
+        params = []
+
+        if min_score is not None:
+            conditions.append("total_score >= ?")
+            params.append(min_score)
+
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+
+        if days_until_expiry is not None:
+            conditions.append("expiry_date <= date('now', '+' || ? || ' days')")
+            params.append(days_until_expiry)
+
+        if tld:
+            conditions.append("tld = ?")
+            params.append(tld)
+
+        if search:
+            conditions.append("name LIKE ?")
+            params.append(f"%{search}%")
+
+        if min_length is not None:
+            conditions.append("length >= ?")
+            params.append(min_length)
+
+        if max_length is not None:
+            conditions.append("length <= ?")
+            params.append(max_length)
+
+        where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+
+        query = f"SELECT COUNT(*) FROM domains {where_clause}"
+        cursor = await self._connection.execute(query, params)
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def get_available_tlds(self) -> List[str]:
+        """사용 가능한 TLD 목록 조회"""
+        query = "SELECT DISTINCT tld FROM domains ORDER BY tld"
+        cursor = await self._connection.execute(query)
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
 
     async def get_unnotified_high_score_domains(self, min_score: int) -> List[Domain]:
         """알림 미발송 고점수 도메인 조회"""
@@ -303,6 +379,32 @@ class Database:
         stats["today_count"] = (await cursor.fetchone())[0]
 
         return stats
+
+    async def get_tld_stats(self) -> Dict[str, int]:
+        """TLD별 도메인 수 통계"""
+        query = """
+            SELECT tld, COUNT(*) as count
+            FROM domains
+            GROUP BY tld
+            ORDER BY count DESC
+            LIMIT 10
+        """
+        cursor = await self._connection.execute(query)
+        rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    async def get_daily_stats(self, days: int = 7) -> List[Dict[str, Any]]:
+        """일별 도메인 발견 통계"""
+        query = """
+            SELECT date(created_at) as date, COUNT(*) as count
+            FROM domains
+            WHERE created_at >= date('now', '-' || ? || ' days')
+            GROUP BY date(created_at)
+            ORDER BY date ASC
+        """
+        cursor = await self._connection.execute(query, (days,))
+        rows = await cursor.fetchall()
+        return [{"date": row[0], "count": row[1]} for row in rows]
 
     def _row_to_domain(self, row: aiosqlite.Row) -> Domain:
         """Row를 Domain 객체로 변환"""

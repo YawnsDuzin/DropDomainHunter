@@ -1,32 +1,140 @@
 {% extends "base.html" %}
 
-{% block title %}Domain Sniper - 설정{% endblock %}
+{% block title %}{{ settings.program_name }} - 설정{% endblock %}
 
 {% block content %}
-<h2 class="mb-4"><i class="bi bi-gear"></i> 시스템 설정</h2>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-gear"></i> 시스템 설정</h2>
+    <div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetSettings()">
+            <i class="bi bi-arrow-counterclockwise"></i> 초기화
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveSettings()">
+            <i class="bi bi-save"></i> 저장
+        </button>
+    </div>
+</div>
 
 <div class="row">
     <div class="col-lg-6">
-        <!-- 크롤링 설정 -->
+        <!-- 수동 크롤링 -->
         <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-cloud-download"></i> 크롤링 설정</h5>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-play-circle"></i> 수동 크롤링</h5>
+                <span id="crawlStatusBadge" class="badge bg-secondary">대기중</span>
             </div>
             <div class="card-body">
-                <table class="table table-dark table-bordered mb-0">
-                    <tr>
-                        <th>전체 스캔 주기</th>
-                        <td>{{ settings.crawl_full_interval_hours }}시간 (매일 06:00)</td>
-                    </tr>
-                    <tr>
-                        <th>7일 스캔 주기</th>
-                        <td>{{ settings.crawl_week_interval_hours }}시간</td>
-                    </tr>
-                    <tr>
-                        <th>1일 스캔 주기</th>
-                        <td>{{ settings.crawl_day_interval_minutes }}분</td>
-                    </tr>
-                </table>
+                <div id="crawlStatus" class="mb-3" style="display: none;">
+                    <div class="alert alert-info mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span id="crawlMessage">크롤링 진행 중...</span>
+                            <span id="crawlElapsed">0초</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div id="crawlProgress" class="progress-bar progress-bar-striped progress-bar-animated"
+                                 role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-primary w-100 crawl-btn" data-type="full"
+                                onclick="triggerCrawl('full')">
+                            <i class="bi bi-globe"></i> 전체 스캔
+                            <small class="d-block text-light opacity-75">30일 이내</small>
+                        </button>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-warning w-100 crawl-btn" data-type="week"
+                                onclick="triggerCrawl('week')">
+                            <i class="bi bi-calendar-week"></i> 7일 스캔
+                            <small class="d-block text-dark opacity-75">7일 이내</small>
+                        </button>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-danger w-100 crawl-btn" data-type="day"
+                                onclick="triggerCrawl('day')">
+                            <i class="bi bi-alarm"></i> 1일 스캔
+                            <small class="d-block text-light opacity-75">긴급</small>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 데이터 내보내기 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-download"></i> 데이터 내보내기</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <a href="/api/export/csv" class="btn btn-outline-success w-100">
+                            <i class="bi bi-filetype-csv"></i> 전체 CSV 다운로드
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="/api/export/csv?min_score=70" class="btn btn-outline-warning w-100">
+                            <i class="bi bi-star"></i> 고점수(70+) CSV
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 자동 크롤링 스케줄 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-clock-history"></i> 자동 크롤링 스케줄</h5>
+            </div>
+            <div class="card-body">
+                <!-- 전체 스캔 -->
+                <div class="row mb-3 align-items-center">
+                    <div class="col-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="crawl_full_enabled" checked>
+                            <label class="form-check-label" for="crawl_full_enabled">전체 스캔</label>
+                        </div>
+                    </div>
+                    <div class="col-8">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">실행 시간</span>
+                            <input type="time" class="form-control" id="crawl_full_time" value="06:00">
+                        </div>
+                    </div>
+                </div>
+                <!-- 7일 스캔 -->
+                <div class="row mb-3 align-items-center">
+                    <div class="col-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="crawl_week_enabled" checked>
+                            <label class="form-check-label" for="crawl_week_enabled">7일 스캔</label>
+                        </div>
+                    </div>
+                    <div class="col-8">
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="crawl_week_interval_hours" min="1" max="24" value="3">
+                            <span class="input-group-text">시간마다</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- 1일 스캔 -->
+                <div class="row align-items-center">
+                    <div class="col-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="crawl_day_enabled" checked>
+                            <label class="form-check-label" for="crawl_day_enabled">1일 스캔</label>
+                        </div>
+                    </div>
+                    <div class="col-8">
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="crawl_day_interval_minutes" min="10" max="120" value="30">
+                            <span class="input-group-text">분마다</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -36,40 +144,41 @@
                 <h5 class="mb-0"><i class="bi bi-funnel"></i> 도메인 필터</h5>
             </div>
             <div class="card-body">
-                <table class="table table-dark table-bordered mb-0">
-                    <tr>
-                        <th>최소 길이</th>
-                        <td>{{ settings.min_domain_length }}자</td>
-                    </tr>
-                    <tr>
-                        <th>최대 길이</th>
-                        <td>{{ settings.max_domain_length }}자</td>
-                    </tr>
-                    <tr>
-                        <th>허용 TLD</th>
-                        <td><code>{{ settings.allowed_tlds }}</code></td>
-                    </tr>
-                    <tr>
-                        <th>숫자 허용</th>
-                        <td>
-                            {% if settings.allow_numbers %}
-                                <span class="badge bg-success">예</span>
-                            {% else %}
-                                <span class="badge bg-danger">아니오</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>하이픈 허용</th>
-                        <td>
-                            {% if settings.allow_hyphens %}
-                                <span class="badge bg-success">예</span>
-                            {% else %}
-                                <span class="badge bg-danger">아니오</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                </table>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label small">최소 길이</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="min_domain_length" min="1" max="20" value="3">
+                            <span class="input-group-text">자</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">최대 길이</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="max_domain_length" min="1" max="50" value="12">
+                            <span class="input-group-text">자</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">허용 TLD (쉼표로 구분)</label>
+                    <input type="text" class="form-control form-control-sm" id="allowed_tlds"
+                           value="com,net,io,ai,co,kr" placeholder="com,net,io">
+                </div>
+                <div class="row">
+                    <div class="col-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="allow_numbers">
+                            <label class="form-check-label" for="allow_numbers">숫자 허용</label>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="allow_hyphens">
+                            <label class="form-check-label" for="allow_hyphens">하이픈 허용</label>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -81,46 +190,49 @@
                 <h5 class="mb-0"><i class="bi bi-bell"></i> 알림 설정</h5>
             </div>
             <div class="card-body">
-                <table class="table table-dark table-bordered mb-0">
-                    <tr>
-                        <th>최소 알림 점수</th>
-                        <td>{{ settings.min_score_alert }}점</td>
-                    </tr>
-                    <tr>
-                        <th>일일 리포트 시간</th>
-                        <td>{{ settings.daily_report_time }}</td>
-                    </tr>
-                    <tr>
-                        <th>Telegram</th>
-                        <td>
-                            {% if settings.telegram_bot_token %}
-                                <span class="badge bg-success">설정됨</span>
-                            {% else %}
-                                <span class="badge bg-secondary">미설정</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Discord</th>
-                        <td>
-                            {% if settings.discord_webhook_url %}
-                                <span class="badge bg-success">설정됨</span>
-                            {% else %}
-                                <span class="badge bg-secondary">미설정</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>하트비트</th>
-                        <td>
-                            {% if settings.heartbeat_interval_minutes > 0 %}
-                                {{ settings.heartbeat_interval_minutes }}분마다
-                            {% else %}
-                                <span class="badge bg-secondary">비활성화</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                </table>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label small">최소 알림 점수</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="min_score_alert" min="0" max="100" value="70">
+                            <span class="input-group-text">점</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">일일 리포트 시간</label>
+                        <input type="time" class="form-control form-control-sm" id="daily_report_time" value="08:00">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small">Telegram</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">
+                            <i class="bi bi-telegram"></i>
+                        </span>
+                        <input type="text" class="form-control" id="telegram_status" readonly>
+                    </div>
+                    <small class="text-muted">.env 파일에서 설정 필요</small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small">Discord</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">
+                            <i class="bi bi-discord"></i>
+                        </span>
+                        <input type="text" class="form-control" id="discord_status" readonly>
+                    </div>
+                    <small class="text-muted">.env 파일에서 설정 필요</small>
+                </div>
+
+                <div>
+                    <label class="form-label small">하트비트 간격 (0=비활성화)</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="heartbeat_interval_minutes" min="0" max="1440" value="0">
+                        <span class="input-group-text">분</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -130,34 +242,270 @@
                 <h5 class="mb-0"><i class="bi bi-cpu"></i> 시스템 정보</h5>
             </div>
             <div class="card-body">
-                <table class="table table-dark table-bordered mb-0">
-                    <tr>
-                        <th>웹 대시보드</th>
-                        <td>
-                            <span class="badge bg-success">활성화</span>
-                            (포트 {{ settings.web_port }})
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>데이터베이스</th>
-                        <td><code>{{ settings.database_path }}</code></td>
-                    </tr>
-                    <tr>
-                        <th>로그 레벨</th>
-                        <td>{{ settings.log_level }}</td>
-                    </tr>
-                </table>
+                <div class="mb-3">
+                    <label class="form-label small">웹 대시보드</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-globe"></i></span>
+                        <input type="text" class="form-control" id="web_dashboard_status" readonly>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small">데이터베이스</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-database"></i></span>
+                        <input type="text" class="form-control" id="database_path" readonly>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="form-label small">로그 레벨</label>
+                    <select class="form-select form-select-sm" id="log_level">
+                        <option value="DEBUG">DEBUG</option>
+                        <option value="INFO" selected>INFO</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="ERROR">ERROR</option>
+                    </select>
+                </div>
             </div>
         </div>
 
-        <!-- 안내 -->
         <div class="alert alert-info">
             <i class="bi bi-info-circle"></i>
-            <strong>설정 변경 방법</strong><br>
-            설정을 변경하려면 <code>.env</code> 파일을 수정한 후 서비스를 재시작하세요.
-            <br><br>
-            <code>sudo systemctl restart domain-sniper</code>
+            <strong>참고</strong>: Telegram/Discord 설정은 <code>.env</code> 파일에서 직접 수정해야 합니다.
+            설정 변경 후 스케줄러가 자동으로 재시작됩니다.
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let statusCheckInterval = null;
+
+// 페이지 로드 시 설정 로드
+document.addEventListener('DOMContentLoaded', () => {
+    loadSettings();
+    checkInitialCrawlStatus();
+});
+
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+
+        if (data.success) {
+            const s = data.settings;
+            const r = data.readonly;
+
+            // 크롤링 스케줄
+            document.getElementById('crawl_full_enabled').checked = s.crawl_full_enabled;
+            document.getElementById('crawl_full_time').value = s.crawl_full_time || '06:00';
+            document.getElementById('crawl_week_enabled').checked = s.crawl_week_enabled;
+            document.getElementById('crawl_week_interval_hours').value = s.crawl_week_interval_hours;
+            document.getElementById('crawl_day_enabled').checked = s.crawl_day_enabled;
+            document.getElementById('crawl_day_interval_minutes').value = s.crawl_day_interval_minutes;
+
+            // 도메인 필터
+            document.getElementById('min_domain_length').value = s.min_domain_length;
+            document.getElementById('max_domain_length').value = s.max_domain_length;
+            document.getElementById('allowed_tlds').value = s.allowed_tlds;
+            document.getElementById('allow_numbers').checked = s.allow_numbers;
+            document.getElementById('allow_hyphens').checked = s.allow_hyphens;
+
+            // 알림 설정
+            document.getElementById('min_score_alert').value = s.min_score_alert;
+            document.getElementById('daily_report_time').value = s.daily_report_time || '08:00';
+            document.getElementById('heartbeat_interval_minutes').value = s.heartbeat_interval_minutes;
+
+            // 읽기 전용 설정
+            document.getElementById('telegram_status').value = r.telegram_configured ? '설정됨 ✓' : '미설정';
+            document.getElementById('discord_status').value = r.discord_configured ? '설정됨 ✓' : '미설정';
+            document.getElementById('web_dashboard_status').value = `활성화 (포트 ${r.web_port})`;
+            document.getElementById('database_path').value = r.database_path;
+            document.getElementById('log_level').value = s.log_level;
+        }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+        showToast('danger', '설정 로드 실패');
+    }
+}
+
+async function saveSettings() {
+    console.log('saveSettings() called');
+
+    const formData = new FormData();
+
+    // 크롤링 스케줄
+    formData.append('crawl_full_enabled', document.getElementById('crawl_full_enabled').checked ? 'true' : 'false');
+    formData.append('crawl_full_time', document.getElementById('crawl_full_time').value);
+    formData.append('crawl_week_enabled', document.getElementById('crawl_week_enabled').checked ? 'true' : 'false');
+    formData.append('crawl_week_interval_hours', document.getElementById('crawl_week_interval_hours').value);
+    formData.append('crawl_day_enabled', document.getElementById('crawl_day_enabled').checked ? 'true' : 'false');
+    formData.append('crawl_day_interval_minutes', document.getElementById('crawl_day_interval_minutes').value);
+
+    // 도메인 필터
+    formData.append('min_domain_length', document.getElementById('min_domain_length').value);
+    formData.append('max_domain_length', document.getElementById('max_domain_length').value);
+    formData.append('allowed_tlds', document.getElementById('allowed_tlds').value);
+    formData.append('allow_numbers', document.getElementById('allow_numbers').checked ? 'true' : 'false');
+    formData.append('allow_hyphens', document.getElementById('allow_hyphens').checked ? 'true' : 'false');
+
+    // 알림 설정
+    formData.append('min_score_alert', document.getElementById('min_score_alert').value);
+    formData.append('daily_report_time', document.getElementById('daily_report_time').value);
+    formData.append('heartbeat_interval_minutes', document.getElementById('heartbeat_interval_minutes').value);
+
+    // 시스템
+    formData.append('log_level', document.getElementById('log_level').value);
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('success', result.message);
+        } else {
+            showToast('danger', result.message || '저장 실패');
+        }
+    } catch (error) {
+        console.error('Failed to save settings:', error);
+        showToast('danger', '설정 저장 실패');
+    }
+}
+
+async function resetSettings() {
+    if (!confirm('설정을 기본값으로 초기화하시겠습니까?')) return;
+
+    try {
+        const response = await fetch('/api/settings/reset', { method: 'POST' });
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('success', result.message);
+            // API 응답에서 받은 설정값으로 직접 UI 업데이트
+            if (result.settings) {
+                applySettingsToUI(result.settings);
+            } else {
+                await loadSettings();
+            }
+        } else {
+            showToast('danger', result.message || '초기화 실패');
+        }
+    } catch (error) {
+        console.error('Failed to reset settings:', error);
+        showToast('danger', '설정 초기화 실패');
+    }
+}
+
+function applySettingsToUI(s) {
+    // 크롤링 스케줄
+    document.getElementById('crawl_full_enabled').checked = s.crawl_full_enabled;
+    document.getElementById('crawl_full_time').value = s.crawl_full_time || '06:00';
+    document.getElementById('crawl_week_enabled').checked = s.crawl_week_enabled;
+    document.getElementById('crawl_week_interval_hours').value = s.crawl_week_interval_hours;
+    document.getElementById('crawl_day_enabled').checked = s.crawl_day_enabled;
+    document.getElementById('crawl_day_interval_minutes').value = s.crawl_day_interval_minutes;
+
+    // 도메인 필터
+    document.getElementById('min_domain_length').value = s.min_domain_length;
+    document.getElementById('max_domain_length').value = s.max_domain_length;
+    document.getElementById('allowed_tlds').value = s.allowed_tlds;
+    document.getElementById('allow_numbers').checked = s.allow_numbers;
+    document.getElementById('allow_hyphens').checked = s.allow_hyphens;
+
+    // 알림 설정
+    document.getElementById('min_score_alert').value = s.min_score_alert;
+    document.getElementById('daily_report_time').value = s.daily_report_time || '08:00';
+    document.getElementById('heartbeat_interval_minutes').value = s.heartbeat_interval_minutes;
+
+    // 시스템
+    document.getElementById('log_level').value = s.log_level;
+}
+
+async function triggerCrawl(type) {
+    const buttons = document.querySelectorAll('.crawl-btn');
+    buttons.forEach(btn => btn.disabled = true);
+
+    try {
+        const formData = new FormData();
+        formData.append('crawl_type', type);
+
+        const response = await fetch('/api/crawl/trigger', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('success', result.message);
+            startStatusCheck();
+        } else {
+            showToast('warning', result.message);
+            buttons.forEach(btn => btn.disabled = false);
+        }
+    } catch (error) {
+        showToast('danger', '크롤링 요청 실패: ' + error.message);
+        buttons.forEach(btn => btn.disabled = false);
+    }
+}
+
+function startStatusCheck() {
+    document.getElementById('crawlStatus').style.display = 'block';
+    document.getElementById('crawlStatusBadge').className = 'badge bg-primary';
+    document.getElementById('crawlStatusBadge').textContent = '진행중';
+
+    statusCheckInterval = setInterval(checkCrawlStatus, 2000);
+    checkCrawlStatus();
+}
+
+async function checkCrawlStatus() {
+    try {
+        const response = await fetch('/api/crawl/status');
+        const status = await response.json();
+
+        if (status.is_running) {
+            document.getElementById('crawlMessage').textContent = status.message || '크롤링 진행 중...';
+            document.getElementById('crawlProgress').style.width = status.progress + '%';
+            document.getElementById('crawlElapsed').textContent = Math.round(status.elapsed_seconds) + '초';
+        } else {
+            clearInterval(statusCheckInterval);
+            document.getElementById('crawlStatus').style.display = 'none';
+            document.getElementById('crawlStatusBadge').className = 'badge bg-success';
+            document.getElementById('crawlStatusBadge').textContent = '완료';
+
+            const buttons = document.querySelectorAll('.crawl-btn');
+            buttons.forEach(btn => btn.disabled = false);
+
+            showToast('success', '크롤링이 완료되었습니다.');
+
+            setTimeout(() => {
+                document.getElementById('crawlStatusBadge').className = 'badge bg-secondary';
+                document.getElementById('crawlStatusBadge').textContent = '대기중';
+            }, 3000);
+        }
+    } catch (error) {
+        console.error('Status check error:', error);
+    }
+}
+
+async function checkInitialCrawlStatus() {
+    try {
+        const response = await fetch('/api/crawl/status');
+        const status = await response.json();
+        if (status.is_running) {
+            startStatusCheck();
+            const buttons = document.querySelectorAll('.crawl-btn');
+            buttons.forEach(btn => btn.disabled = true);
+        }
+    } catch (error) {
+        console.error('Initial status check error:', error);
+    }
+}
+
+</script>
 {% endblock %}

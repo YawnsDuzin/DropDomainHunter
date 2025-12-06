@@ -131,7 +131,7 @@ class DiscordNotifier:
                 },
             ],
             "footer": {
-                "text": f"소스: {domain.source or 'N/A'} | Domain Sniper"
+                "text": f"소스: {domain.source or 'N/A'} | {settings.program_name}"
             },
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -204,7 +204,7 @@ class DiscordNotifier:
                 }
             ],
             "footer": {
-                "text": "Domain Sniper 자동 리포트"
+                "text": f"{settings.program_name} 자동 리포트"
             },
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -227,7 +227,7 @@ class DiscordNotifier:
 
         embed = {
             "title": "💓 시스템 하트비트",
-            "description": "Domain Sniper가 정상 작동 중입니다.",
+            "description": f"{settings.program_name}가 정상 작동 중입니다.",
             "color": 0x00FF00,  # 초록
             "footer": {
                 "text": f"확인 시간: {now.strftime('%Y-%m-%d %H:%M:%S')}"

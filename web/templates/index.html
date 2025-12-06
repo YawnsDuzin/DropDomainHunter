@@ -1,66 +1,192 @@
 {% extends "base.html" %}
 
-{% block title %}Domain Sniper - 홈{% endblock %}
+{% block title %}{{ settings.program_name }} - 홈{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chart-container {
+        position: relative;
+        height: 200px;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
 <!-- 통계 카드 -->
 <div class="row mb-4">
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card stat-card text-center">
-            <div class="card-body">
-                <div class="stat-number text-primary">{{ stats.total_count | default(0) }}</div>
-                <div class="text-muted">총 도메인</div>
+            <div class="card-body py-3">
+                <div class="stat-number text-primary">{{ stats.total_count | default(0) | string | replace(',', '') }}</div>
+                <div class="text-muted small">총 도메인</div>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card stat-card text-center">
-            <div class="card-body">
+            <div class="card-body py-3">
                 <div class="stat-number text-success">{{ stats.today_count | default(0) }}</div>
-                <div class="text-muted">오늘 발견</div>
+                <div class="text-muted small">오늘 발견</div>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card stat-card text-center">
-            <div class="card-body">
+            <div class="card-body py-3">
                 <div class="stat-number text-danger">{{ stats.score_distribution.high | default(0) }}</div>
-                <div class="text-muted">고점수 (80+)</div>
+                <div class="text-muted small">고점수 (80+)</div>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-md-3">
         <div class="card stat-card text-center">
-            <div class="card-body">
+            <div class="card-body py-3">
                 <div class="stat-number text-warning">{{ stats.score_distribution.medium | default(0) }}</div>
-                <div class="text-muted">중점수 (60-79)</div>
+                <div class="text-muted small">중점수 (60-79)</div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 필터 -->
+<!-- 차트 섹션 (접힘) -->
 <div class="card mb-4">
-    <div class="card-body">
-        <form class="row g-3" method="get" action="/">
-            <div class="col-auto">
-                <label class="form-label">최소 점수</label>
-                <select name="min_score" class="form-select">
-                    <option value="">전체</option>
-                    <option value="90" {% if min_score == 90 %}selected{% endif %}>90+</option>
-                    <option value="80" {% if min_score == 80 %}selected{% endif %}>80+</option>
-                    <option value="70" {% if min_score == 70 %}selected{% endif %}>70+</option>
-                    <option value="60" {% if min_score == 60 %}selected{% endif %}>60+</option>
-                </select>
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-bar-chart"></i> 통계 차트</h6>
+        <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#chartsSection">
+            <i class="bi bi-graph-up"></i> 차트 보기
+        </button>
+    </div>
+    <div class="collapse" id="chartsSection">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <h6 class="text-center mb-3"><i class="bi bi-pie-chart"></i> 점수 분포</h6>
+                    <div class="chart-container">
+                        <canvas id="scoreChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <h6 class="text-center mb-3"><i class="bi bi-globe"></i> TLD 분포</h6>
+                    <div class="chart-container">
+                        <canvas id="tldChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <h6 class="text-center mb-3"><i class="bi bi-graph-up"></i> 일별 트렌드 (7일)</h6>
+                    <div class="chart-container">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
             </div>
-            <div class="col-auto d-flex align-items-end">
-                <button type="submit" class="btn btn-primary">
-                    <i class="bi bi-filter"></i> 필터
-                </button>
+        </div>
+    </div>
+</div>
+
+<!-- 검색 및 필터 -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-funnel"></i> 검색 및 필터</h6>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#advancedFilters">
+            <i class="bi bi-sliders"></i> 상세 필터
+        </button>
+    </div>
+    <div class="card-body">
+        <form method="get" action="/" id="filterForm">
+            <!-- 기본 검색 -->
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" name="search" class="form-control" placeholder="도메인 검색..."
+                               value="{{ search or '' }}">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <select name="tld" class="form-select">
+                        <option value="">모든 TLD</option>
+                        {% for t in available_tlds %}
+                        <option value="{{ t }}" {% if tld == t %}selected{% endif %}>.{{ t }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="min_score" class="form-select">
+                        <option value="">모든 점수</option>
+                        <option value="90" {% if min_score == 90 %}selected{% endif %}>90+ 점</option>
+                        <option value="80" {% if min_score == 80 %}selected{% endif %}>80+ 점</option>
+                        <option value="70" {% if min_score == 70 %}selected{% endif %}>70+ 점</option>
+                        <option value="60" {% if min_score == 60 %}selected{% endif %}>60+ 점</option>
+                        <option value="50" {% if min_score == 50 %}selected{% endif %}>50+ 점</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="expiry" class="form-select">
+                        <option value="">모든 만료일</option>
+                        <option value="today" {% if expiry == 'today' %}selected{% endif %}>오늘 만료</option>
+                        <option value="week" {% if expiry == 'week' %}selected{% endif %}>7일 이내</option>
+                        <option value="month" {% if expiry == 'month' %}selected{% endif %}>30일 이내</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> 검색
+                    </button>
+                </div>
+            </div>
+
+            <!-- 상세 필터 (접힘) -->
+            <div class="collapse" id="advancedFilters">
+                <hr class="my-3">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label small">길이 (최소)</label>
+                        <input type="number" name="min_length" class="form-control form-control-sm"
+                               placeholder="예: 3" min="1" max="50" value="{{ min_length or '' }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">길이 (최대)</label>
+                        <input type="number" name="max_length" class="form-control form-control-sm"
+                               placeholder="예: 8" min="1" max="50" value="{{ max_length or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">정렬</label>
+                        <select name="sort" class="form-select form-select-sm">
+                            <option value="score_desc" {% if sort == 'score_desc' %}selected{% endif %}>점수 높은순</option>
+                            <option value="score_asc" {% if sort == 'score_asc' %}selected{% endif %}>점수 낮은순</option>
+                            <option value="expiry_asc" {% if sort == 'expiry_asc' %}selected{% endif %}>만료 임박순</option>
+                            <option value="expiry_desc" {% if sort == 'expiry_desc' %}selected{% endif %}>만료 늦은순</option>
+                            <option value="length_asc" {% if sort == 'length_asc' %}selected{% endif %}>길이 짧은순</option>
+                            <option value="length_desc" {% if sort == 'length_desc' %}selected{% endif %}>길이 긴순</option>
+                            <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>이름 오름차순</option>
+                            <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>이름 내림차순</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <a href="/" class="btn btn-outline-secondary btn-sm w-100">
+                            <i class="bi bi-x-circle"></i> 초기화
+                        </a>
+                    </div>
+                </div>
             </div>
         </form>
     </div>
 </div>
+
+<!-- 검색 결과 정보 -->
+{% if search or tld or min_score or expiry or min_length or max_length %}
+<div class="alert alert-info d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <i class="bi bi-info-circle"></i>
+        <strong>{{ total_count }}</strong>개의 결과
+        {% if search %}<span class="badge bg-primary ms-2">검색: {{ search }}</span>{% endif %}
+        {% if tld %}<span class="badge bg-secondary ms-2">.{{ tld }}</span>{% endif %}
+        {% if min_score %}<span class="badge bg-danger ms-2">{{ min_score }}+ 점</span>{% endif %}
+        {% if expiry %}<span class="badge bg-warning text-dark ms-2">{{ expiry }}</span>{% endif %}
+        {% if min_length or max_length %}<span class="badge bg-info ms-2">{{ min_length or '?' }}-{{ max_length or '?' }}자</span>{% endif %}
+    </div>
+    <a href="/" class="btn btn-sm btn-outline-info">필터 초기화</a>
+</div>
+{% endif %}
 
 <!-- 도메인 목록 -->
 <div class="card">
@@ -156,23 +282,48 @@
     </div>
 
     <!-- 페이지네이션 -->
-    <div class="card-footer">
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <small class="text-muted">
+            총 {{ total_count }}개 중 {{ ((page - 1) * 20) + 1 }}-{{ ((page - 1) * 20) + (domains | length) }}
+        </small>
         <nav>
-            <ul class="pagination justify-content-center mb-0">
+            <ul class="pagination pagination-sm mb-0">
+                {# 이전 페이지 #}
                 {% if page > 1 %}
                 <li class="page-item">
-                    <a class="page-link" href="/?page={{ page - 1 }}{% if min_score %}&min_score={{ min_score }}{% endif %}">
+                    <a class="page-link" href="/?page=1{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                        <i class="bi bi-chevron-double-left"></i>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="/?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
                         <i class="bi bi-chevron-left"></i>
                     </a>
                 </li>
                 {% endif %}
-                <li class="page-item active">
-                    <span class="page-link">{{ page }}</span>
+
+                {# 페이지 번호 #}
+                {% set start_page = [1, page - 2] | max %}
+                {% set end_page = [total_pages, page + 2] | min %}
+
+                {% for p in range(start_page, end_page + 1) %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link" href="/?page={{ p }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                        {{ p }}
+                    </a>
                 </li>
-                {% if domains | length == 20 %}
+                {% endfor %}
+
+                {# 다음 페이지 #}
+                {% if page < total_pages %}
                 <li class="page-item">
-                    <a class="page-link" href="/?page={{ page + 1 }}{% if min_score %}&min_score={{ min_score }}{% endif %}">
+                    <a class="page-link" href="/?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
                         <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="/?page={{ total_pages }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                        <i class="bi bi-chevron-double-right"></i>
                     </a>
                 </li>
                 {% endif %}
@@ -180,4 +331,131 @@
         </nav>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+let chartsLoaded = false;
+
+// 차트 섹션이 열릴 때 차트 로드
+document.getElementById('chartsSection').addEventListener('shown.bs.collapse', function () {
+    if (!chartsLoaded) {
+        loadCharts();
+        chartsLoaded = true;
+    }
+});
+
+async function loadCharts() {
+    try {
+        const response = await fetch('/api/stats/charts');
+        const data = await response.json();
+
+        // 점수 분포 도넛 차트
+        new Chart(document.getElementById('scoreChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['고점수 (80+)', '중점수 (60-79)', '저점수 (<60)'],
+                datasets: [{
+                    data: [
+                        data.score_distribution.high || 0,
+                        data.score_distribution.medium || 0,
+                        data.score_distribution.low || 0
+                    ],
+                    backgroundColor: ['#dc3545', '#ffc107', '#6c757d'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#eee', font: { size: 10 } }
+                    }
+                }
+            }
+        });
+
+        // TLD 분포 바 차트
+        const tldLabels = Object.keys(data.tld_distribution || {});
+        const tldValues = Object.values(data.tld_distribution || {});
+
+        new Chart(document.getElementById('tldChart'), {
+            type: 'bar',
+            data: {
+                labels: tldLabels.map(t => '.' + t),
+                datasets: [{
+                    label: '도메인 수',
+                    data: tldValues,
+                    backgroundColor: '#0d6efd',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        ticks: { color: '#aaa' }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: '#eee' }
+                    }
+                }
+            }
+        });
+
+        // 일별 트렌드 라인 차트
+        const dailyData = data.daily_trend || [];
+        const dateLabels = dailyData.map(d => d.date.slice(5)); // MM-DD
+        const dailyValues = dailyData.map(d => d.count);
+
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: {
+                labels: dateLabels,
+                datasets: [{
+                    label: '발견 수',
+                    data: dailyValues,
+                    borderColor: '#198754',
+                    backgroundColor: 'rgba(25, 135, 84, 0.2)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        ticks: { color: '#aaa' }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        ticks: { color: '#aaa' },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Failed to load charts:', error);
+    }
+}
+</script>
 {% endblock %}

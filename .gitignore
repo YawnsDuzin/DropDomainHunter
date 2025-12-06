@@ -49,5 +49,8 @@ tmp/
 temp/
 *.tmp
 
+# 사용자 데이터
+data/
+
 # 기타
 .prompts.md

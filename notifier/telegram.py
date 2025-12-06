@@ -135,7 +135,7 @@ class TelegramNotifier:
 {top_list if top_list else '• 아직 데이터가 없습니다.'}
 
 ━━━━━━━━━━━━━━━━━━
-🤖 Domain Sniper 자동 리포트
+🤖 {settings.program_name} 자동 리포트
 """
 
         try:
@@ -166,7 +166,7 @@ class TelegramNotifier:
 💓 <b>시스템 하트비트</b>
 🕐 {now.strftime("%Y-%m-%d %H:%M:%S")}
 
-Domain Sniper가 정상 작동 중입니다.
+{settings.program_name}가 정상 작동 중입니다.
 """
 
         try:

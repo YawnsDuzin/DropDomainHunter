@@ -12,6 +12,10 @@ from pydantic import Field, field_validator
 class Settings(BaseSettings):
     """애플리케이션 설정"""
 
+    # ----- 프로그램 정보 -----
+    program_name: str = Field(default="Domain Sniper", description="프로그램 이름")
+    program_version: str = Field(default="1.0.0", description="프로그램 버전")
+
     # ----- Telegram 설정 -----
     telegram_bot_token: str = Field(default="", description="Telegram Bot API 토큰")
     telegram_chat_id: str = Field(default="", description="Telegram 채팅방 ID")
@@ -87,6 +91,11 @@ class Settings(BaseSettings):
     def daily_report_minute(self) -> int:
         """일일 리포트 시간 (분)"""
         return int(self.daily_report_time.split(":")[1])
+
+    @property
+    def program_full_name(self) -> str:
+        """프로그램 전체 이름 (이름/버전)"""
+        return f"{self.program_name} v{self.program_version}"
 
     class Config:
         env_file = ".env"

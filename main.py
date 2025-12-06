@@ -10,7 +10,9 @@ Domain Sniper - 메인 엔트리포인트
 """
 
 import asyncio
+import os
 import signal
+import socket
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +20,32 @@ from typing import Optional
 
 import structlog
 import uvloop
+
+
+def notify_systemd(state: str) -> None:
+    """
+    systemd에 상태 알림 전송
+
+    Args:
+        state: 상태 문자열 (예: "READY=1", "WATCHDOG=1")
+    """
+    notify_socket = os.environ.get("NOTIFY_SOCKET")
+    if not notify_socket:
+        return
+
+    try:
+        if notify_socket.startswith("@"):
+            # Abstract socket
+            notify_socket = "\0" + notify_socket[1:]
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            sock.connect(notify_socket)
+            sock.sendall(state.encode())
+        finally:
+            sock.close()
+    except Exception:
+        pass  # systemd 알림 실패는 무시
 
 # uvloop 설정 (비동기 성능 최적화)
 uvloop.install()
@@ -29,6 +57,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from config import settings, validate_settings
 from database import init_database, Database
 from crawler import ExpiredDomainsCrawler
+from crawler.state import crawl_state
 from scorer import DomainEvaluator
 from notifier import NotificationManager
 from database.models import Domain, CrawlLog
@@ -161,21 +190,129 @@ class DomainSniper:
                 replace_existing=True
             )
 
+        # 6. systemd watchdog (매 60초)
+        self.scheduler.add_job(
+            self._notify_watchdog,
+            IntervalTrigger(seconds=60),
+            id="watchdog",
+            name="Systemd Watchdog",
+            replace_existing=True
+        )
+
         logger.info("schedules_configured")
 
-    async def run_full_crawl(self) -> None:
+    async def reload_scheduler(self, runtime_settings: dict = None) -> None:
+        """
+        런타임 설정에 따라 스케줄러 재설정
+
+        Args:
+            runtime_settings: 런타임 설정 딕셔너리 (None이면 파일에서 로드)
+        """
+        import json
+        from pathlib import Path
+
+        # 런타임 설정 로드
+        if runtime_settings is None:
+            settings_path = Path(__file__).parent / "data" / "runtime_settings.json"
+            if settings_path.exists():
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    runtime_settings = json.load(f)
+            else:
+                runtime_settings = {}
+
+        logger.info("reloading_scheduler", settings=runtime_settings)
+
+        # 기존 크롤링 작업 제거
+        for job_id in ["full_crawl", "week_crawl", "day_crawl", "daily_report", "heartbeat"]:
+            try:
+                self.scheduler.remove_job(job_id)
+            except Exception:
+                pass
+
+        # 전체 스캔 재설정
+        if runtime_settings.get("crawl_full_enabled", True):
+            crawl_time = runtime_settings.get("crawl_full_time", "06:00")
+            hour, minute = map(int, crawl_time.split(":"))
+            self.scheduler.add_job(
+                self.run_full_crawl,
+                CronTrigger(hour=hour, minute=minute),
+                id="full_crawl",
+                name="Full domain crawl",
+                replace_existing=True
+            )
+            logger.info("full_crawl_scheduled", time=crawl_time)
+
+        # 7일 스캔 재설정
+        if runtime_settings.get("crawl_week_enabled", True):
+            interval = runtime_settings.get("crawl_week_interval_hours", 3)
+            self.scheduler.add_job(
+                self.run_week_crawl,
+                IntervalTrigger(hours=interval),
+                id="week_crawl",
+                name="7-day expiry crawl",
+                replace_existing=True
+            )
+            logger.info("week_crawl_scheduled", interval_hours=interval)
+
+        # 1일 스캔 재설정
+        if runtime_settings.get("crawl_day_enabled", True):
+            interval = runtime_settings.get("crawl_day_interval_minutes", 30)
+            self.scheduler.add_job(
+                self.run_day_crawl,
+                IntervalTrigger(minutes=interval),
+                id="day_crawl",
+                name="1-day expiry crawl",
+                replace_existing=True
+            )
+            logger.info("day_crawl_scheduled", interval_minutes=interval)
+
+        # 일일 리포트 재설정
+        daily_report_time = runtime_settings.get("daily_report_time", "08:00")
+        hour, minute = map(int, daily_report_time.split(":"))
+        self.scheduler.add_job(
+            self.send_daily_report,
+            CronTrigger(hour=hour, minute=minute),
+            id="daily_report",
+            name="Daily report",
+            replace_existing=True
+        )
+
+        # 하트비트 재설정
+        heartbeat_interval = runtime_settings.get("heartbeat_interval_minutes", 0)
+        if heartbeat_interval > 0:
+            self.scheduler.add_job(
+                self.send_heartbeat,
+                IntervalTrigger(minutes=heartbeat_interval),
+                id="heartbeat",
+                name="Heartbeat",
+                replace_existing=True
+            )
+            logger.info("heartbeat_scheduled", interval_minutes=heartbeat_interval)
+
+        logger.info("scheduler_reloaded")
+
+    async def run_full_crawl(self, is_manual: bool = False) -> bool:
         """전체 크롤링 실행"""
-        logger.info("starting_full_crawl")
+        # 크롤링 상태 확인 및 시작
+        if not await crawl_state.try_start("full", is_manual=is_manual):
+            logger.warning("full_crawl_skipped", reason="already_running")
+            return False
+
+        logger.info("starting_full_crawl", is_manual=is_manual)
         start_time = datetime.now()
 
         try:
+            await crawl_state.update_progress(10, "크롤러 초기화 중...")
+
             async with ExpiredDomainsCrawler() as crawler:
+                await crawl_state.update_progress(20, "전체 TLD 크롤링 중...")
                 # 전체 TLD 크롤링 (30일 이내)
                 raw_domains = await crawler.crawl_all_tlds(
                     days_until_expiry=30,
                     max_pages_per_tld=5
                 )
 
+            await crawl_state.update_progress(70, "도메인 평가 및 저장 중...")
             # 평가 및 저장
             result = await self._process_domains(raw_domains, "full_crawl")
 
@@ -183,54 +320,117 @@ class DomainSniper:
             duration = (datetime.now() - start_time).total_seconds()
             await self._log_crawl("expireddomains.net", "full", result, duration)
 
+            await crawl_state.update_progress(90, "알림 발송 중...")
             # 고점수 도메인 알림
-            await self.notifier.notify_high_score_domains()
+            notified_count = await self.notifier.notify_high_score_domains()
+
+            # 크롤링 완료 알림 발송
+            await self.notifier.send_crawl_summary(
+                source="전체 스캔",
+                total_found=result['total_found'],
+                new_domains=result['new_domains'],
+                high_score_count=result['high_score_count'],
+                duration=duration
+            )
+
+            await crawl_state.finish(True, f"완료: {result['total_found']}개 발견, {result['new_domains']}개 신규, {notified_count}개 알림")
+            return True
 
         except Exception as e:
             logger.error("full_crawl_error", error=str(e))
             await self.notifier.send_error_alert("full_crawl", str(e))
+            await crawl_state.finish(False, f"오류: {str(e)}")
+            return False
 
-    async def run_week_crawl(self) -> None:
+    async def run_week_crawl(self, is_manual: bool = False) -> bool:
         """7일 이내 만료 도메인 크롤링"""
-        logger.info("starting_week_crawl")
+        if not await crawl_state.try_start("week", is_manual=is_manual):
+            logger.warning("week_crawl_skipped", reason="already_running")
+            return False
+
+        logger.info("starting_week_crawl", is_manual=is_manual)
         start_time = datetime.now()
 
         try:
+            await crawl_state.update_progress(10, "크롤러 초기화 중...")
+
             async with ExpiredDomainsCrawler() as crawler:
+                await crawl_state.update_progress(20, "7일 이내 만료 도메인 크롤링 중...")
                 raw_domains = await crawler.crawl_all_tlds(
                     days_until_expiry=7,
                     max_pages_per_tld=3
                 )
 
+            await crawl_state.update_progress(70, "도메인 평가 및 저장 중...")
             result = await self._process_domains(raw_domains, "week_crawl")
 
             duration = (datetime.now() - start_time).total_seconds()
             await self._log_crawl("expireddomains.net", "week", result, duration)
 
-            await self.notifier.notify_high_score_domains()
+            await crawl_state.update_progress(90, "알림 발송 중...")
+            notified_count = await self.notifier.notify_high_score_domains()
+
+            # 크롤링 완료 알림 발송
+            await self.notifier.send_crawl_summary(
+                source="7일 이내 스캔",
+                total_found=result['total_found'],
+                new_domains=result['new_domains'],
+                high_score_count=result['high_score_count'],
+                duration=duration
+            )
+
+            await crawl_state.finish(True, f"완료: {result['total_found']}개 발견, {result['new_domains']}개 신규, {notified_count}개 알림")
+            return True
 
         except Exception as e:
             logger.error("week_crawl_error", error=str(e))
+            await self.notifier.send_error_alert("week_crawl", str(e))
+            await crawl_state.finish(False, f"오류: {str(e)}")
+            return False
 
-    async def run_day_crawl(self) -> None:
+    async def run_day_crawl(self, is_manual: bool = False) -> bool:
         """1일 이내 만료 도메인 크롤링"""
-        logger.info("starting_day_crawl")
+        if not await crawl_state.try_start("day", is_manual=is_manual):
+            logger.warning("day_crawl_skipped", reason="already_running")
+            return False
+
+        logger.info("starting_day_crawl", is_manual=is_manual)
         start_time = datetime.now()
 
         try:
+            await crawl_state.update_progress(10, "크롤러 초기화 중...")
+
             async with ExpiredDomainsCrawler() as crawler:
+                await crawl_state.update_progress(20, "1일 이내 만료 도메인 크롤링 중...")
                 raw_domains = await crawler.crawl_pending_delete(max_pages=3)
 
+            await crawl_state.update_progress(70, "도메인 평가 및 저장 중...")
             result = await self._process_domains(raw_domains, "day_crawl")
 
             duration = (datetime.now() - start_time).total_seconds()
             await self._log_crawl("expireddomains.net", "day", result, duration)
 
+            await crawl_state.update_progress(90, "알림 발송 중...")
             # 긴급 알림 (1일 이내는 즉시)
-            await self.notifier.notify_high_score_domains()
+            notified_count = await self.notifier.notify_high_score_domains()
+
+            # 크롤링 완료 알림 발송
+            await self.notifier.send_crawl_summary(
+                source="1일 이내 긴급 스캔",
+                total_found=result['total_found'],
+                new_domains=result['new_domains'],
+                high_score_count=result['high_score_count'],
+                duration=duration
+            )
+
+            await crawl_state.finish(True, f"완료: {result['total_found']}개 발견, {result['new_domains']}개 신규, {notified_count}개 알림")
+            return True
 
         except Exception as e:
             logger.error("day_crawl_error", error=str(e))
+            await self.notifier.send_error_alert("day_crawl", str(e))
+            await crawl_state.finish(False, f"오류: {str(e)}")
+            return False
 
     async def _process_domains(self, raw_domains: list, source: str) -> dict:
         """
@@ -303,6 +503,10 @@ class DomainSniper:
         logger.debug("sending_heartbeat")
         await self.notifier.send_heartbeat()
 
+    async def _notify_watchdog(self) -> None:
+        """systemd watchdog에 상태 알림"""
+        notify_systemd("WATCHDOG=1")
+
     async def start(self) -> None:
         """애플리케이션 시작"""
         await self.initialize()
@@ -311,6 +515,9 @@ class DomainSniper:
         self.scheduler.start()
 
         logger.info("domain_sniper_started")
+
+        # systemd에 준비 완료 알림
+        notify_systemd("READY=1")
 
         # 시작 알림
         await self.notifier.telegram.send_message(
@@ -338,7 +545,7 @@ class DomainSniper:
             import uvicorn
             from web.app import create_app
 
-            app = create_app(self.db)
+            app = create_app(self.db, self)
 
             config = uvicorn.Config(
                 app=app,
@@ -359,6 +566,7 @@ class DomainSniper:
     async def stop(self) -> None:
         """애플리케이션 종료"""
         logger.info("stopping_domain_sniper")
+        notify_systemd("STOPPING=1")
         self.running = False
 
         if self.scheduler and self.scheduler.running:
