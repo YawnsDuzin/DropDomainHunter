@@ -312,25 +312,83 @@ PRAGMA temp_store=MEMORY;     -- 임시 테이블 메모리 사용
 
 #### FastAPI 앱
 
-**엔드포인트**:
+**페이지 엔드포인트**:
 | 경로 | 메서드 | 설명 |
 |-----|--------|------|
-| `/` | GET | 메인 페이지 (도메인 목록) |
+| `/` | GET | 메인 페이지 (도메인 목록, 필터링, 정렬) |
 | `/watchlist` | GET | 워치리스트 |
-| `/watchlist/add` | POST | 워치리스트 추가 |
 | `/domain/{id}` | GET | 도메인 상세 |
 | `/logs` | GET | 크롤링 로그 |
-| `/settings` | GET | 설정 확인 |
-| `/api/stats` | GET | 통계 API |
+| `/keywords` | GET | 키워드 관리 페이지 |
+| `/settings` | GET | 시스템 설정 페이지 |
+
+**API 엔드포인트**:
+| 경로 | 메서드 | 설명 |
+|-----|--------|------|
+| `/api/stats` | GET | 통계 API (차트 데이터) |
 | `/api/domains` | GET | 도메인 목록 API |
 | `/api/health` | GET | 헬스체크 |
+| `/api/watchlist/add` | POST | 워치리스트 추가 |
+| `/api/watchlist/{id}` | DELETE | 워치리스트 삭제 |
+| `/api/keywords` | GET | 키워드 목록 (기본+커스텀) |
+| `/api/keywords` | POST | 커스텀 키워드 추가 |
+| `/api/keywords/{keyword}` | PUT | 커스텀 키워드 수정 |
+| `/api/keywords/{keyword}` | DELETE | 커스텀 키워드 삭제 |
+| `/api/settings` | GET | 런타임 설정 조회 |
+| `/api/settings` | POST | 런타임 설정 저장 |
+| `/api/settings/reset` | POST | 런타임 설정 초기화 |
+| `/api/crawl/trigger` | POST | 수동 크롤링 트리거 |
+| `/api/crawl/status` | GET | 크롤링 상태 조회 |
+| `/api/export/csv` | GET | CSV 내보내기 |
+
+#### 런타임 설정 시스템
+
+웹 대시보드에서 변경 가능한 설정은 `data/runtime_settings.json`에 저장됩니다.
+
+```json
+{
+  "crawl_full_enabled": true,
+  "crawl_full_time": "06:00",
+  "crawl_week_enabled": true,
+  "crawl_week_interval_hours": 3,
+  "crawl_day_enabled": true,
+  "crawl_day_interval_minutes": 30,
+  "min_domain_length": 3,
+  "max_domain_length": 12,
+  "allowed_tlds": "com,net,io,ai,co,kr",
+  "allow_numbers": false,
+  "allow_hyphens": false,
+  "min_score_alert": 70,
+  "daily_report_time": "08:00",
+  "heartbeat_interval_minutes": 0,
+  "log_level": "INFO"
+}
+```
+
+설정 변경 시 스케줄러가 자동으로 재설정됩니다 (`reload_scheduler` 메서드).
+
+#### 키워드 분류
+
+커스텀 키워드는 4가지 분류를 지원합니다:
+- **TECH**: 기술 관련 (ai, api, cloud 등)
+- **FINANCE**: 금융 관련 (pay, bank, coin 등)
+- **BUSINESS**: 비즈니스 관련 (pro, hub, market 등)
+- **GENERIC**: 일반 (best, top, go 등)
+
+커스텀 키워드는 `data/keywords.json`에 저장됩니다:
+```json
+{
+  "keyword": {"score": 90, "category": "TECH"}
+}
+```
 
 #### 템플릿
 
 - Jinja2 기반
 - Bootstrap 5 (CDN)
-- 다크 테마 UI
+- 다크/라이트 테마 토글
 - 반응형 디자인
+- Chart.js 차트 (TLD 분포, 점수 분포)
 
 ---
 

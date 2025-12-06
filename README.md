@@ -10,6 +10,11 @@
 - 📊 **AI 가치 평가**: 길이, 키워드, 발음 패턴 기반 점수 산정
 - 📱 **실시간 알림**: Telegram Bot & Discord Webhook 지원
 - 🖥️ **웹 대시보드**: 반응형 웹 UI (FastAPI + Jinja2)
+  - 다크/라이트 테마 지원
+  - 도메인 목록 필터링 및 정렬
+  - 키워드 관리 (Tech, Finance, Business, Generic 분류)
+  - 시스템 설정 (크롤링 스케줄, 필터, 알림)
+  - 수동 크롤링 트리거
 - ⏰ **무중단 운영**: systemd 서비스로 24/7 자동 실행
 - 🔋 **저전력**: 라즈베리파이4에 최적화된 경량 설계
 
@@ -107,9 +112,14 @@ domain-sniper/
 ├── web/                   # 웹 대시보드
 │   ├── app.py             # FastAPI 앱
 │   └── templates/         # Jinja2 템플릿
+│       ├── base.html      # 기본 레이아웃
+│       ├── index.html     # 메인 페이지
+│       ├── keywords.html  # 키워드 관리
+│       └── settings.html  # 시스템 설정
 │
 ├── data/
-│   └── keywords.json      # 고가치 키워드 DB
+│   ├── keywords.json      # 커스텀 키워드 DB
+│   └── runtime_settings.json  # 런타임 설정
 │
 └── docs/                  # 문서
     ├── SETUP_GUIDE.md     # 상세 설치 가이드
@@ -118,30 +128,44 @@ domain-sniper/
 
 ## ⚙️ 설정 옵션
 
-### 크롤링 설정
+설정은 두 가지 방법으로 관리됩니다:
+1. **`.env` 파일**: 프로그램 정보, 알림 채널, 로그인 정보 (재시작 필요)
+2. **웹 대시보드**: 크롤링 스케줄, 필터, 알림 설정 (즉시 반영)
 
-| 환경변수 | 기본값 | 설명 |
-|---------|-------|------|
-| `CRAWL_FULL_INTERVAL_HOURS` | 24 | 전체 스캔 주기 |
-| `CRAWL_WEEK_INTERVAL_HOURS` | 3 | 7일 이내 스캔 주기 |
-| `CRAWL_DAY_INTERVAL_MINUTES` | 30 | 1일 이내 스캔 주기 |
+### 크롤링 설정 (웹 대시보드에서 변경 가능)
 
-### 도메인 필터
+| 설정 | 기본값 | 설명 |
+|------|-------|------|
+| 전체 스캔 | 매일 06:00 | 30일 이내 만료 도메인 |
+| 7일 스캔 | 3시간마다 | 7일 이내 만료 도메인 |
+| 1일 스캔 | 30분마다 | 긴급 만료 도메인 |
 
-| 환경변수 | 기본값 | 설명 |
-|---------|-------|------|
-| `MIN_DOMAIN_LENGTH` | 3 | 최소 도메인 길이 |
-| `MAX_DOMAIN_LENGTH` | 12 | 최대 도메인 길이 |
-| `ALLOWED_TLDS` | com,net,io,co,kr | 허용 TLD |
-| `ALLOW_NUMBERS` | false | 숫자 포함 허용 |
-| `ALLOW_HYPHENS` | false | 하이픈 포함 허용 |
+### 도메인 필터 (웹 대시보드에서 변경 가능)
 
-### 알림 설정
+| 설정 | 기본값 | 설명 |
+|------|-------|------|
+| 최소/최대 길이 | 3 / 12 | 도메인 길이 필터 |
+| 허용 TLD | com,net,io,ai,co,kr | TLD 화이트리스트 |
+| 숫자 허용 | false | 숫자 포함 도메인 |
+| 하이픈 허용 | false | 하이픈 포함 도메인 |
 
-| 환경변수 | 기본값 | 설명 |
-|---------|-------|------|
-| `MIN_SCORE_ALERT` | 70 | 알림 최소 점수 |
-| `DAILY_REPORT_TIME` | 08:00 | 일일 리포트 시간 |
+### 알림 설정 (웹 대시보드에서 변경 가능)
+
+| 설정 | 기본값 | 설명 |
+|------|-------|------|
+| 최소 알림 점수 | 70점 | 이 점수 이상만 알림 |
+| 일일 리포트 | 08:00 | 일일 요약 발송 시간 |
+| 하트비트 간격 | 0분 | 0=비활성화 |
+
+### .env 설정 (수동 편집)
+
+| 환경변수 | 필수 | 설명 |
+|---------|-----|------|
+| `EXPIRED_DOMAINS_USERNAME` | ✅ | ExpiredDomains.net 아이디 |
+| `EXPIRED_DOMAINS_PASSWORD` | ✅ | ExpiredDomains.net 비밀번호 |
+| `TELEGRAM_BOT_TOKEN` | 권장 | Telegram Bot 토큰 |
+| `TELEGRAM_CHAT_ID` | 권장 | Telegram 채팅방 ID |
+| `DISCORD_WEBHOOK_URL` | 선택 | Discord Webhook URL |
 
 ## 📊 점수 체계
 

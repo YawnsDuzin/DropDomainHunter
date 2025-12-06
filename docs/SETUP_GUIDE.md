@@ -314,75 +314,79 @@ http://192.168.x.x:8000
 
 ### 9.2 기능
 
-- **홈**: 도메인 목록 및 통계
-- **관심목록**: 북마크한 도메인
+- **홈**: 도메인 목록, 필터링, 정렬, 통계 차트
+- **관심목록**: 북마크한 도메인 관리
 - **로그**: 크롤링 기록
-- **설정**: 현재 설정 확인
+- **키워드**: 커스텀 키워드 관리 (분류별)
+- **설정**: 크롤링 스케줄, 필터, 알림 설정
+
+### 9.3 테마 변경
+
+우측 상단의 🌙/☀️ 아이콘을 클릭하여 다크/라이트 모드를 전환할 수 있습니다.
+
+### 9.4 수동 크롤링
+
+설정 페이지에서 다음 버튼을 클릭하여 즉시 크롤링을 실행할 수 있습니다:
+- **전체 스캔**: 30일 이내 만료 도메인 수집
+- **7일 스캔**: 7일 이내 만료 도메인 수집
+- **1일 스캔**: 긴급 만료 도메인 수집
 
 ---
 
 ## 10. 고급 설정
 
-### 10.1 크롤링 주기 변경
+### 10.1 웹 대시보드에서 설정 변경 (권장)
+
+대부분의 설정은 웹 대시보드 **설정** 페이지에서 변경할 수 있습니다:
+- 크롤링 스케줄 (활성화/비활성화, 실행 시간, 간격)
+- 도메인 필터 (길이, TLD, 숫자/하이픈 허용)
+- 알림 설정 (최소 점수, 리포트 시간, 하트비트)
+
+변경 사항은 **저장** 버튼 클릭 시 즉시 반영되며, 스케줄러가 자동으로 재설정됩니다.
+
+### 10.2 키워드 관리
+
+웹 대시보드 **키워드** 페이지에서 커스텀 키워드를 관리할 수 있습니다:
+
+1. **키워드 추가**: 키워드명, 분류, 점수 설정
+2. **분류 선택**: Tech, Finance, Business, Generic
+3. **점수 설정**: 0-100 (높을수록 고가치)
+
+예시:
+| 키워드 | 분류 | 점수 |
+|--------|------|------|
+| fintech | Finance | 95 |
+| saas | Tech | 90 |
+| defi | Finance | 95 |
+
+### 10.3 .env 파일 설정 (수동)
+
+알림 채널 및 로그인 정보는 `.env` 파일에서 직접 수정해야 합니다:
 
 ```bash
 nano .env
 ```
 
 ```env
-# 전체 스캔: 매 12시간
-CRAWL_FULL_INTERVAL_HOURS=12
+# ExpiredDomains.net 로그인 (필수)
+EXPIRED_DOMAINS_USERNAME=your_username
+EXPIRED_DOMAINS_PASSWORD=your_password
 
-# 7일 이내: 매 2시간
-CRAWL_WEEK_INTERVAL_HOURS=2
+# Telegram 알림
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
 
-# 1일 이내: 매 15분
-CRAWL_DAY_INTERVAL_MINUTES=15
+# Discord 알림 (선택)
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+
+# 프로그램 정보
+PROGRAM_NAME=Domain Sniper
+PROGRAM_VERSION=1.0.0
 ```
 
 변경 후 서비스 재시작:
 ```bash
 sudo systemctl restart domain-sniper
-```
-
-### 10.2 도메인 필터 조정
-
-```env
-# 4~8자 도메인만 수집
-MIN_DOMAIN_LENGTH=4
-MAX_DOMAIN_LENGTH=8
-
-# .ai TLD 추가
-ALLOWED_TLDS=com,net,io,co,ai
-
-# 숫자 포함 도메인 허용
-ALLOW_NUMBERS=true
-```
-
-### 10.3 알림 점수 조정
-
-```env
-# 80점 이상만 알림
-MIN_SCORE_ALERT=80
-
-# 매일 오전 9시 리포트
-DAILY_REPORT_TIME=09:00
-```
-
-### 10.4 커스텀 키워드 추가
-
-```bash
-nano data/keywords.json
-```
-
-예시:
-```json
-{
-    "fintech": 95,
-    "saas": 90,
-    "defi": 95,
-    "metaverse": 85
-}
 ```
 
 ---

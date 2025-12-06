@@ -44,15 +44,16 @@ python crawler/expired_domains.py
 
 | Module | Purpose |
 |--------|---------|
-| `main.py` | Entry point, APScheduler orchestration, signal handling |
+| `main.py` | Entry point, APScheduler orchestration, signal handling, `reload_scheduler()` |
 | `config.py` | Pydantic settings from `.env`, domain filters, scoring thresholds |
 | `crawler/expired_domains.py` | HTTP client with login, retry logic (tenacity), rate limiting |
 | `crawler/parser.py` | HTML parsing, domain validation, adult keyword filtering |
+| `crawler/state.py` | Global crawl state tracking (progress, status, elapsed time) |
 | `scorer/evaluator.py` | Composite scoring, value estimation by score tier |
 | `scorer/length.py`, `keyword.py`, `pattern.py` | Individual scoring algorithms |
 | `database/models.py` | Domain, WatchlistItem, CrawlLog dataclasses + Database class |
 | `notifier/manager.py` | Unified notification dispatch |
-| `web/app.py` | FastAPI dashboard with Jinja2 templates |
+| `web/app.py` | FastAPI dashboard with Jinja2 templates, runtime settings API |
 
 ### Scheduler Jobs (APScheduler)
 - **full_crawl**: Daily at 06:00, all TLDs, 30-day expiry window
@@ -69,12 +70,24 @@ python crawler/expired_domains.py
 
 ## Configuration
 
-Environment variables loaded from `.env`:
+### Static Configuration (`.env`)
 - `EXPIRED_DOMAINS_USERNAME/PASSWORD`: Required for authenticated crawling
 - `TELEGRAM_BOT_TOKEN/CHAT_ID`: Telegram notifications
 - `DISCORD_WEBHOOK_URL`: Discord notifications
-- `MIN_SCORE_ALERT`: Threshold for notifications (default 70)
-- `MIN/MAX_DOMAIN_LENGTH`, `ALLOWED_TLDS`, `ALLOW_NUMBERS`, `ALLOW_HYPHENS`: Domain filters
+- `PROGRAM_NAME/PROGRAM_VERSION`: Program identity
+
+### Runtime Configuration (`data/runtime_settings.json`)
+Managed via web dashboard, hot-reloadable:
+- Crawl schedules (full/week/day enabled, times, intervals)
+- Domain filters (length, TLDs, numbers, hyphens)
+- Alert settings (min score, report time, heartbeat)
+- Log level
+
+### Custom Keywords (`data/keywords.json`)
+```json
+{"keyword": {"score": 90, "category": "TECH"}}
+```
+Categories: TECH, FINANCE, BUSINESS, GENERIC
 
 ## Code Patterns
 
@@ -84,3 +97,19 @@ Environment variables loaded from `.env`:
 - **tenacity** for HTTP retry with exponential backoff
 - **Dataclasses** for Domain, CrawlLog entities with `to_dict()` methods
 - Web routes follow REST conventions with HTML templates and JSON API endpoints
+- **Runtime settings** saved to JSON, scheduler reloaded on change (`reload_scheduler`)
+- **Crawl state** tracked globally via `crawler/state.py` for real-time progress
+
+## Web Dashboard
+
+### Key Pages
+- `/`: Domain list with filters, sorting, pagination, charts
+- `/keywords`: Keyword management (add/edit/delete with categories)
+- `/settings`: Runtime configuration (crawl schedule, filters, alerts)
+
+### Key APIs
+- `GET/POST /api/settings`: Runtime settings CRUD
+- `POST /api/settings/reset`: Reset to defaults
+- `GET/POST/PUT/DELETE /api/keywords`: Keyword management
+- `POST /api/crawl/trigger`: Manual crawl trigger
+- `GET /api/crawl/status`: Real-time crawl progress
