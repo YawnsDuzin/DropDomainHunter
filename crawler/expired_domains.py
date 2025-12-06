@@ -25,6 +25,7 @@ class ExpiredDomainsCrawler:
     # expireddomains.net 기본 URL
     BASE_URL = "https://www.expireddomains.net"
     LOGIN_URL = "https://www.expireddomains.net/login/"
+    LOGIN_CHECK_URL = "https://www.expireddomains.net/logincheck/"  # 폼 제출 URL
 
     # 검색 엔드포인트
     ENDPOINTS = {
@@ -110,13 +111,24 @@ class ExpiredDomainsCrawler:
                 login_data = {
                     "login": settings.expired_domains_username,
                     "password": settings.expired_domains_password,
-                    "remember_me": "1",
+                    "rememberme": "1",  # HTML 폼의 필드명은 rememberme
                 }
 
             logger.info("login_form_data", fields=list(login_data.keys()))
 
+            # 폼 action에서 실제 로그인 체크 URL 추출
+            login_action_url = self.LOGIN_CHECK_URL  # 기본값: /logincheck/
+            if form:
+                action = form.get("action")
+                if action:
+                    if action.startswith("/"):
+                        login_action_url = f"{self.BASE_URL}{action}"
+                    elif action.startswith("http"):
+                        login_action_url = action
+                    logger.info("login_form_action", action=action, url=login_action_url)
+
             response = await self.client.post(
-                self.LOGIN_URL,
+                login_action_url,  # /logincheck/로 POST
                 data=login_data,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
