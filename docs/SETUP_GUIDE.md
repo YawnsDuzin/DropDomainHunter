@@ -8,12 +8,13 @@
 2. [라즈베리파이 OS 설치](#2-라즈베리파이-os-설치)
 3. [시스템 초기 설정](#3-시스템-초기-설정)
 4. [Domain Sniper 설치](#4-domain-sniper-설치)
-5. [Telegram Bot 설정](#5-telegram-bot-설정)
-6. [Discord Webhook 설정](#6-discord-webhook-설정-선택)
-7. [서비스 시작 및 확인](#7-서비스-시작-및-확인)
-8. [웹 대시보드 접속](#8-웹-대시보드-접속)
-9. [고급 설정](#9-고급-설정)
-10. [문제 해결](#10-문제-해결)
+5. [ExpiredDomains.net 계정 설정](#5-expireddomainsnet-계정-설정-필수)
+6. [Telegram Bot 설정](#6-telegram-bot-설정)
+7. [Discord Webhook 설정](#7-discord-webhook-설정-선택)
+8. [서비스 시작 및 확인](#8-서비스-시작-및-확인)
+9. [웹 대시보드 접속](#9-웹-대시보드-접속)
+10. [고급 설정](#10-고급-설정)
+11. [문제 해결](#11-문제-해결)
 
 ---
 
@@ -31,6 +32,7 @@
 
 ### 준비물
 
+- [ ] **ExpiredDomains.net 계정** (필수 - 크롤링용)
 - [ ] Telegram 계정 (알림 수신용)
 - [ ] Discord 계정 (선택사항)
 - [ ] SSH 클라이언트 (Windows: PuTTY, Mac/Linux: 터미널)
@@ -168,9 +170,38 @@ sudo systemctl enable domain-sniper
 
 ---
 
-## 5. Telegram Bot 설정
+## 5. ExpiredDomains.net 계정 설정 (필수)
 
-### 5.1 Bot 생성
+크롤링을 위해 ExpiredDomains.net 계정이 필요합니다.
+
+### 5.1 계정 생성
+
+1. https://www.expireddomains.net 방문
+2. **Register** 클릭 (우측 상단)
+3. 이메일, 사용자명, 비밀번호 입력
+4. 이메일 인증 완료
+
+### 5.2 .env 파일 설정
+
+```bash
+nano .env
+```
+
+다음 항목 수정:
+```env
+EXPIRED_DOMAINS_USERNAME=your_username
+EXPIRED_DOMAINS_PASSWORD=your_password
+```
+
+저장: `Ctrl+O`, `Enter`, `Ctrl+X`
+
+> ⚠️ **주의**: 계정이 없거나 자격 증명이 잘못되면 크롤링이 실패합니다.
+
+---
+
+## 6. Telegram Bot 설정
+
+### 6.1 Bot 생성
 
 1. Telegram에서 **@BotFather** 검색 후 대화 시작
 2. `/newbot` 명령어 입력
@@ -178,13 +209,13 @@ sudo systemctl enable domain-sniper
 4. 봇 사용자명 입력 (예: `my_domain_sniper_bot`)
 5. **토큰 저장** (예: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
 
-### 5.2 Chat ID 확인
+### 6.2 Chat ID 확인
 
 1. 생성한 봇에게 아무 메시지 전송 (예: `/start`)
 2. **@userinfobot** 에게 메시지 전송
 3. 표시되는 **ID** 번호 저장 (예: `123456789`)
 
-### 5.3 .env 파일 설정
+### 6.3 .env 파일 설정
 
 ```bash
 nano .env
@@ -200,9 +231,9 @@ TELEGRAM_CHAT_ID=123456789
 
 ---
 
-## 6. Discord Webhook 설정 (선택)
+## 7. Discord Webhook 설정 (선택)
 
-### 6.1 Webhook 생성
+### 7.1 Webhook 생성
 
 1. Discord 서버 설정 → 연동 → 웹후크
 2. **새 웹후크** 클릭
@@ -210,7 +241,7 @@ TELEGRAM_CHAT_ID=123456789
 4. 채널 선택
 5. **웹후크 URL 복사**
 
-### 6.2 .env 파일 설정
+### 7.2 .env 파일 설정
 
 ```bash
 nano .env
@@ -223,15 +254,15 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 
 ---
 
-## 7. 서비스 시작 및 확인
+## 8. 서비스 시작 및 확인
 
-### 7.1 서비스 시작
+### 8.1 서비스 시작
 
 ```bash
 sudo systemctl start domain-sniper
 ```
 
-### 7.2 상태 확인
+### 8.2 상태 확인
 
 ```bash
 sudo systemctl status domain-sniper
@@ -244,7 +275,7 @@ sudo systemctl status domain-sniper
      Active: active (running) since ...
 ```
 
-### 7.3 로그 확인
+### 8.3 로그 확인
 
 ```bash
 # 실시간 로그
@@ -254,7 +285,7 @@ journalctl -u domain-sniper -f
 journalctl -u domain-sniper -n 100
 ```
 
-### 7.4 Telegram 테스트
+### 8.4 Telegram 테스트
 
 서비스 시작 시 Telegram으로 시작 알림이 도착해야 합니다:
 ```
@@ -268,9 +299,9 @@ journalctl -u domain-sniper -n 100
 
 ---
 
-## 8. 웹 대시보드 접속
+## 9. 웹 대시보드 접속
 
-### 8.1 브라우저에서 접속
+### 9.1 브라우저에서 접속
 
 ```
 http://raspberrypi.local:8000
@@ -281,7 +312,7 @@ http://raspberrypi.local:8000
 http://192.168.x.x:8000
 ```
 
-### 8.2 기능
+### 9.2 기능
 
 - **홈**: 도메인 목록 및 통계
 - **관심목록**: 북마크한 도메인
@@ -290,9 +321,9 @@ http://192.168.x.x:8000
 
 ---
 
-## 9. 고급 설정
+## 10. 고급 설정
 
-### 9.1 크롤링 주기 변경
+### 10.1 크롤링 주기 변경
 
 ```bash
 nano .env
@@ -314,7 +345,7 @@ CRAWL_DAY_INTERVAL_MINUTES=15
 sudo systemctl restart domain-sniper
 ```
 
-### 9.2 도메인 필터 조정
+### 10.2 도메인 필터 조정
 
 ```env
 # 4~8자 도메인만 수집
@@ -328,7 +359,7 @@ ALLOWED_TLDS=com,net,io,co,ai
 ALLOW_NUMBERS=true
 ```
 
-### 9.3 알림 점수 조정
+### 10.3 알림 점수 조정
 
 ```env
 # 80점 이상만 알림
@@ -338,7 +369,7 @@ MIN_SCORE_ALERT=80
 DAILY_REPORT_TIME=09:00
 ```
 
-### 9.4 커스텀 키워드 추가
+### 10.4 커스텀 키워드 추가
 
 ```bash
 nano data/keywords.json
@@ -356,7 +387,7 @@ nano data/keywords.json
 
 ---
 
-## 10. 문제 해결
+## 11. 문제 해결
 
 ### 문제: 서비스가 시작되지 않음
 
@@ -430,6 +461,32 @@ nslookup expireddomains.net
 cd ~/domain-sniper
 source venv/bin/activate
 python main.py --crawl-now
+```
+
+### 문제: ExpiredDomains.net 로그인 실패
+
+1. 자격 증명 확인:
+```bash
+grep EXPIRED_DOMAINS .env
+```
+
+2. 계정이 활성화되어 있는지 확인:
+   - https://www.expireddomains.net 에서 직접 로그인 시도
+   - 계정이 비활성화된 경우 `accountdeactivated` 메시지 표시
+
+3. 로그에서 로그인 상태 확인:
+```bash
+journalctl -u domain-sniper | grep -i login
+```
+
+4. 디버그 HTML 파일 확인 (로그인 후 저장됨):
+```bash
+cat /tmp/expireddomains_after_login.html | head -100
+```
+
+5. 세션 만료 시 자동 재로그인 로그 확인:
+```bash
+journalctl -u domain-sniper | grep -i "session_expired\|relogin"
 ```
 
 ---

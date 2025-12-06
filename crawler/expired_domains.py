@@ -24,16 +24,29 @@ class ExpiredDomainsCrawler:
 
     # expireddomains.net 기본 URL
     BASE_URL = "https://www.expireddomains.net"
+    MEMBER_URL = "https://member.expireddomains.net"  # 로그인 후 사용하는 멤버 영역
     LOGIN_URL = "https://www.expireddomains.net/login/"
     LOGIN_CHECK_URL = "https://www.expireddomains.net/logincheck/"  # 폼 제출 URL
 
-    # 검색 엔드포인트
+    # 검색 엔드포인트 (멤버 영역)
+    # TLD별 삭제된 도메인 리스트
+    TLD_ENDPOINTS = {
+        "com": "/domains/expiredcom/",
+        "net": "/domains/expirednet/",
+        "org": "/domains/expiredorg/",
+        "io": "/domains/expiredio/",
+        "ai": "/domains/expiredai/",
+        "co": "/domains/expiredco/",
+        "kr": "/domains/expiredkr/",
+        "info": "/domains/expiredinfo/",
+        "biz": "/domains/expiredbiz/",
+    }
+
+    # 기타 엔드포인트
     ENDPOINTS = {
-        "deleted_com": "/domain-name-search/?q=&start=",
-        "deleted_net": "/domain-name-search/?ftld[]=net&q=&start=",
-        "deleted_io": "/domain-name-search/?ftld[]=io&q=&start=",
-        "pending_delete": "/pendingdelete-domains/",
-        "expired": "/expired-domains/",
+        "deleted_combined": "/domains/combinedexpired/",  # 모든 TLD 삭제 도메인
+        "pending_delete": "/domains/pendingdelete/",
+        "domain_search": "/domain-name-search/",
     }
 
     def __init__(self):
@@ -74,20 +87,16 @@ class ExpiredDomainsCrawler:
         """ExpiredDomains.net 로그인"""
         try:
             # 로그인 페이지 먼저 방문 (쿠키 설정)
+            logger.info("visiting_login_page")
             login_page = await self.client.get(self.LOGIN_URL)
 
-            # 디버그: 로그인 페이지 HTML 저장
-            try:
-                with open("/tmp/expireddomains_login_page.html", "w", encoding="utf-8") as f:
-                    f.write(login_page.text)
-                logger.info("login_page_saved", file="/tmp/expireddomains_login_page.html")
-            except Exception:
-                pass
+            # 현재 쿠키 상태 로깅
+            logger.info("cookies_after_login_page", cookies=list(self.client.cookies.keys()))
 
             # BeautifulSoup으로 폼 필드 추출
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(login_page.text, "lxml")
-            form = soup.find("form")
+            form = soup.find("form", {"method": "post"})
 
             # 폼 필드 동적 추출
             login_data = {}
@@ -111,13 +120,13 @@ class ExpiredDomainsCrawler:
                 login_data = {
                     "login": settings.expired_domains_username,
                     "password": settings.expired_domains_password,
-                    "rememberme": "1",  # HTML 폼의 필드명은 rememberme
+                    "rememberme": "1",
                 }
 
             logger.info("login_form_data", fields=list(login_data.keys()))
 
             # 폼 action에서 실제 로그인 체크 URL 추출
-            login_action_url = self.LOGIN_CHECK_URL  # 기본값: /logincheck/
+            login_action_url = self.LOGIN_CHECK_URL
             if form:
                 action = form.get("action")
                 if action:
@@ -127,72 +136,172 @@ class ExpiredDomainsCrawler:
                         login_action_url = action
                     logger.info("login_form_action", action=action, url=login_action_url)
 
+            # 로그인 POST 요청 - follow_redirects=False로 설정하여 리다이렉트 수동 처리
             response = await self.client.post(
-                login_action_url,  # /logincheck/로 POST
+                login_action_url,
                 data=login_data,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Referer": self.LOGIN_URL,
                     "Origin": "https://www.expireddomains.net",
-                }
+                },
+                follow_redirects=False  # 리다이렉트 수동 처리
             )
 
-            # 디버그: 로그인 응답 HTML 저장
-            try:
-                with open("/tmp/expireddomains_login_response.html", "w", encoding="utf-8") as f:
-                    f.write(response.text)
-                logger.info("login_response_saved", file="/tmp/expireddomains_login_response.html")
-            except Exception:
-                pass
+            logger.info("login_response",
+                       status=response.status_code,
+                       cookies=list(self.client.cookies.keys()),
+                       location=response.headers.get("location", ""))
 
-            # 로그인 성공 확인 방법들:
-            # 1. 응답에 "logout" 링크가 있으면 성공
-            # 2. 쿠키에 세션 정보가 있으면 성공
-            # 3. 에러 메시지가 없으면 성공
+            # 리다이렉트 처리 (302/303 응답)
+            if response.status_code in (301, 302, 303, 307, 308):
+                redirect_url = response.headers.get("location", "")
+                if redirect_url:
+                    if redirect_url.startswith("/"):
+                        redirect_url = f"{self.BASE_URL}{redirect_url}"
+                    logger.info("following_redirect", url=redirect_url)
+                    await asyncio.sleep(0.5)
+                    response = await self.client.get(redirect_url)
+
+            # 로그인 성공 확인
             response_text = response.text.lower()
+
+            # 쿠키 확인 - ExpiredDomains는 PHPSESSID 사용
+            cookies = self.client.cookies
+            cookie_names = list(cookies.keys())
+            has_session = any("php" in name.lower() or "sess" in name.lower() or "ed" in name.lower()
+                             for name in cookie_names)
+
+            logger.info("login_check",
+                       has_session=has_session,
+                       cookies=cookie_names,
+                       has_logout="logout" in response_text,
+                       has_login_form="inputlogin" in response_text or "inputpassword" in response_text)
 
             # 로그인 실패 메시지 확인
             login_failed = (
                 "invalid" in response_text or
                 "incorrect" in response_text or
-                "wrong" in response_text or
-                "error" in response_text and "login" in response_text
+                "wrong password" in response_text or
+                "accountdeactivated" in str(response.url).lower() or
+                "accountdeactivated" in response_text or
+                "deactivated" in response_text
             )
 
-            # 로그인 성공 확인
+            # 계정 비활성화 확인
+            if "accountdeactivated" in str(response.url).lower():
+                logger.error("account_deactivated",
+                           username=settings.expired_domains_username,
+                           message="ExpiredDomains.net 계정이 비활성화되었습니다. 웹사이트에서 확인하세요.")
+                self.logged_in = False
+                return False
+
+            # 로그인 성공 확인 - username이 페이지에 표시되거나 logout 링크가 있으면 성공
             login_success = (
                 "logout" in response_text or
+                settings.expired_domains_username.lower() in response_text or
                 "my account" in response_text or
-                "member" in response_text
+                "deleted domains" in response_text  # 메인 페이지로 리다이렉트된 경우
             )
-
-            # 쿠키 확인
-            cookies = self.client.cookies
-            has_session = any("sess" in name.lower() or "member" in name.lower() or "user" in name.lower()
-                             for name in cookies.keys())
 
             if login_success or (has_session and not login_failed):
                 self.logged_in = True
-                logger.info("expireddomains_login_success", username=settings.expired_domains_username)
+                logger.info("expireddomains_login_success",
+                           username=settings.expired_domains_username,
+                           cookies=cookie_names)
 
-                # 로그인 후 expired-domains 페이지 방문해서 세션 확인
+                # 로그인 후 멤버 영역 페이지 방문해서 세션 확인
                 await asyncio.sleep(1)
-                test_page = await self.client.get(f"{self.BASE_URL}/expired-domains/")
-                if "logout" in test_page.text.lower():
-                    logger.info("session_verified_on_expired_domains")
-                else:
-                    logger.warning("session_not_verified_on_expired_domains")
+                test_page = await self.client.get(
+                    f"{self.MEMBER_URL}/",
+                    headers={"Referer": self.BASE_URL}
+                )
 
-                return True
+                # 디버그용 저장
+                try:
+                    import tempfile
+                    import os
+                    debug_dir = tempfile.gettempdir()
+                    debug_file = os.path.join(debug_dir, "expireddomains_after_login.html")
+                    with open(debug_file, "w", encoding="utf-8") as f:
+                        f.write(test_page.text)
+                    logger.info("debug_html_saved", file=debug_file)
+                except Exception:
+                    pass
+
+                test_text = test_page.text.lower()
+                if "logout" in test_text or settings.expired_domains_username.lower() in test_text:
+                    logger.info("session_verified_on_member_area")
+                    return True
+                elif "login to see" in test_text or "please login" in test_text:
+                    # 세션이 유지되지 않음 - 다시 로그인 시도
+                    logger.warning("session_lost_after_redirect",
+                                  cookies=list(self.client.cookies.keys()))
+                    # 페이지에서 다시 로그인 시도
+                    return await self._retry_login_on_page(test_page.text)
+                else:
+                    logger.info("session_check_inconclusive")
+                    return True
+
             else:
                 logger.warning("expireddomains_login_failed",
                              username=settings.expired_domains_username,
                              has_session=has_session,
-                             cookies=list(cookies.keys()))
+                             cookies=cookie_names,
+                             login_failed=login_failed)
                 return False
 
         except Exception as e:
-            logger.error("expireddomains_login_error", error=str(e))
+            logger.error("expireddomains_login_error", error=str(e), exc_info=True)
+            return False
+
+    async def _retry_login_on_page(self, page_html: str) -> bool:
+        """페이지 내 로그인 폼으로 재로그인 시도"""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(page_html, "lxml")
+            form = soup.find("form", {"method": "post"})
+
+            if not form:
+                logger.warning("no_login_form_found_on_page")
+                return False
+
+            action = form.get("action", "/logincheck/")
+            if action.startswith("/"):
+                action = f"{self.BASE_URL}{action}"
+
+            login_data = {
+                "login": settings.expired_domains_username,
+                "password": settings.expired_domains_password,
+                "rememberme": "1",
+            }
+
+            # hidden 필드 추가
+            for inp in form.find_all("input", {"type": "hidden"}):
+                name = inp.get("name")
+                if name:
+                    login_data[name] = inp.get("value", "")
+
+            response = await self.client.post(
+                action,
+                data=login_data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Referer": f"{self.BASE_URL}/expired-domains/",
+                },
+                follow_redirects=True
+            )
+
+            if "logout" in response.text.lower():
+                logger.info("retry_login_success")
+                self.logged_in = True
+                return True
+            else:
+                logger.warning("retry_login_failed")
+                return False
+
+        except Exception as e:
+            logger.error("retry_login_error", error=str(e))
             return False
 
     async def close(self) -> None:
@@ -218,8 +327,48 @@ class ExpiredDomainsCrawler:
         # 요청 간 딜레이 (서버 부하 방지)
         await asyncio.sleep(settings.request_delay + random.uniform(0, 1))
 
-        response = await self.client.get(url)
+        # Referer 결정 - member URL이면 member Referer 사용
+        if "member.expireddomains.net" in url:
+            referer = self.MEMBER_URL
+        else:
+            referer = self.BASE_URL
+
+        response = await self.client.get(
+            url,
+            headers={"Referer": referer}
+        )
         response.raise_for_status()
+
+        # 세션 만료 확인 - 로그인 페이지로 리다이렉트되거나 로그인 필요 메시지가 있으면 재로그인
+        response_text = response.text.lower()
+        final_url = str(response.url)
+
+        # 세션 만료 조건 확인
+        session_expired = (
+            ("login to see" in response_text or "please login" in response_text) or
+            ("/login" in final_url and "member.expireddomains.net" not in final_url) or
+            ("accountdeactivated" in final_url or "accountdeactivated" in response_text)
+        )
+
+        if session_expired and self.logged_in:
+            logger.warning("session_expired_during_fetch", url=url, final_url=final_url)
+            self.logged_in = False  # 세션 상태 초기화
+
+            # 재로그인 전 대기 (rate limit 방지)
+            await asyncio.sleep(3)
+
+            # 재로그인 시도
+            if await self._login():
+                # 재로그인 성공 시 페이지 다시 요청
+                await asyncio.sleep(2)
+                response = await self.client.get(
+                    url,
+                    headers={"Referer": referer}
+                )
+                response.raise_for_status()
+            else:
+                logger.error("relogin_failed", url=url)
+                raise Exception("세션 만료 및 재로그인 실패")
 
         logger.debug("page_fetched", url=url, status=response.status_code)
         return response.text
@@ -231,7 +380,7 @@ class ExpiredDomainsCrawler:
         max_pages: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        expireddomains.net 크롤링
+        expireddomains.net 크롤링 (멤버 영역 사용)
 
         Args:
             tld: 대상 TLD
@@ -243,17 +392,16 @@ class ExpiredDomainsCrawler:
         """
         all_domains = []
 
-        # TLD별 검색 파라미터
-        params = {
-            "fwhois": "22",  # WHOIS 가능
-            "fbl": "0",  # 블랙리스트 제외
-            "fstatuses[]": "1",  # 활성 상태
-            "start": "0"
-        }
+        # TLD별 엔드포인트 결정
+        tld_lower = tld.lower()
+        if tld_lower in self.TLD_ENDPOINTS:
+            endpoint = self.TLD_ENDPOINTS[tld_lower]
+        else:
+            # 지원되지 않는 TLD는 combined 리스트 사용
+            endpoint = self.ENDPOINTS["deleted_combined"]
 
-        # TLD 필터
-        if tld != "com":
-            params["ftld[]"] = tld
+        # 필터 파라미터
+        params = {}
 
         # 길이 필터
         params["fmaxchars"] = str(settings.max_domain_length)
@@ -265,7 +413,12 @@ class ExpiredDomainsCrawler:
         if not settings.allow_numbers:
             params["fnumbers"] = "1"  # 숫자 제외
 
-        base_search_url = f"{self.BASE_URL}/expired-domains/"
+        # TLD 필터 (combined 리스트 사용 시)
+        if endpoint == self.ENDPOINTS["deleted_combined"] and tld_lower != "all":
+            params["ftld[]"] = tld_lower
+
+        # 멤버 영역 URL 사용
+        base_search_url = f"{self.MEMBER_URL}{endpoint}"
 
         for page in range(max_pages):
             try:
@@ -360,8 +513,8 @@ class ExpiredDomainsCrawler:
                 )
                 all_domains.extend(domains)
 
-                # TLD 간 딜레이
-                await asyncio.sleep(5)
+                # TLD 간 딜레이 (rate limit 방지를 위해 충분한 대기 시간)
+                await asyncio.sleep(10)
 
             except Exception as e:
                 logger.error("tld_crawl_error", tld=tld, error=str(e))
@@ -391,7 +544,8 @@ class ExpiredDomainsCrawler:
         if not settings.allow_numbers:
             params["fnumbers"] = "1"
 
-        base_url = f"{self.BASE_URL}/pendingdelete-domains/"
+        # 멤버 영역 URL 사용
+        base_url = f"{self.MEMBER_URL}{self.ENDPOINTS['pending_delete']}"
 
         for page in range(max_pages):
             try:

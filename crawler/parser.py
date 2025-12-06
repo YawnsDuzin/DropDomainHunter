@@ -145,19 +145,29 @@ class DomainParser:
         # 다양한 테이블 구조 시도
         table = None
 
-        # 1. 기존 방식: class="base1"
+        # 1. 멤버 영역: class="base1" 테이블 (가장 일반적)
         table = soup.find("table", class_="base1")
 
-        # 2. 새로운 방식: class 포함 "domain" 테이블
+        # 2. 멤버 영역: id="table" 또는 class="domainlist"
         if not table:
             table = soup.find("table", id="table")
 
-        # 3. 첫 번째 테이블 시도
+        if not table:
+            table = soup.find("table", class_="domainlist")
+
+        # 3. tbody 내 도메인 테이블 찾기
+        if not table:
+            # content div 내 테이블 찾기
+            content = soup.find("div", id="content")
+            if content:
+                table = content.find("table")
+
+        # 4. 첫 번째 테이블에서 도메인 링크 찾기
         if not table:
             tables = soup.find_all("table")
             for t in tables:
                 # 도메인 링크가 있는 테이블 찾기
-                if t.find("a", class_="namemark") or t.find("a", title=True):
+                if t.find("a", class_="field_domain") or t.find("a", class_="namemark") or t.find("td", class_="field_domain"):
                     table = t
                     break
 
@@ -166,6 +176,8 @@ class DomainParser:
             page_text = soup.get_text().lower()
             if "login" in page_text and "please" in page_text:
                 logger.warning("domain_table_not_found", reason="login_required")
+            elif "no domains found" in page_text or "no results" in page_text:
+                logger.info("domain_table_not_found", reason="no_results")
             else:
                 logger.warning("domain_table_not_found", reason="table_not_found")
             return domains
@@ -173,29 +185,49 @@ class DomainParser:
         # 테이블 행 찾기 - 다양한 방식 시도
         rows = table.find_all("tr", class_="base1")
         if not rows:
+            rows = table.find_all("tr", class_=re.compile(r"row"))  # row0, row1 등
+        if not rows:
             rows = table.find_all("tr")[1:]  # 헤더 제외
 
         for row in rows:
             try:
                 cells = row.find_all("td")
-                if len(cells) < 3:
+                if len(cells) < 2:
                     continue
 
                 # 도메인 이름 추출 - 여러 방식 시도
-                domain_cell = cells[0]
-                domain_link = domain_cell.find("a", class_="namemark")  # 원래 클래스
-                if not domain_link:
-                    domain_link = domain_cell.find("a", class_="field_domain")
-                if not domain_link:
-                    domain_link = domain_cell.find("a", title=True)
-                if not domain_link:
-                    domain_link = domain_cell.find("a")
-                if not domain_link:
-                    continue
+                full_name = None
 
-                full_name = domain_link.get_text(strip=True)
+                # 방식 1: field_domain 클래스가 있는 td에서 찾기
+                domain_cell = row.find("td", class_="field_domain")
+                if domain_cell:
+                    domain_link = domain_cell.find("a")
+                    if domain_link:
+                        full_name = domain_link.get_text(strip=True)
+
+                # 방식 2: 첫 번째 td에서 a 태그 찾기
+                if not full_name:
+                    domain_cell = cells[0]
+                    domain_link = domain_cell.find("a", class_="namemark")  # 원래 클래스
+                    if not domain_link:
+                        domain_link = domain_cell.find("a", class_="field_domain")
+                    if not domain_link:
+                        domain_link = domain_cell.find("a", title=True)
+                    if not domain_link:
+                        domain_link = domain_cell.find("a")
+                    if domain_link:
+                        full_name = domain_link.get_text(strip=True)
+
+                # 방식 3: 행에서 .com, .net 등이 포함된 텍스트 찾기
+                if not full_name:
+                    row_text = row.get_text()
+                    domain_match = re.search(r'([a-zA-Z0-9-]+\.(?:com|net|org|io|ai|co|kr|app|dev|info|biz))', row_text)
+                    if domain_match:
+                        full_name = domain_match.group(1)
+
                 if not full_name or "." not in full_name:
                     continue
+
                 parsed = cls.parse_domain_name(full_name)
                 if not parsed:
                     continue

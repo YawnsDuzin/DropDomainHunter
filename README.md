@@ -47,9 +47,16 @@ nano .env
 
 필수 설정:
 ```env
+# ExpiredDomains.net 로그인 (필수)
+EXPIRED_DOMAINS_USERNAME=your_username
+EXPIRED_DOMAINS_PASSWORD=your_password
+
+# Telegram 알림
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 ```
+
+> ⚠️ ExpiredDomains.net 계정이 없으면 https://www.expireddomains.net 에서 가입하세요.
 
 ### 4. 서비스 시작
 
@@ -167,7 +174,7 @@ sudo systemctl restart domain-sniper
 journalctl -u domain-sniper -f
 
 # 즉시 크롤링 실행
-cd /home/pi/domain-sniper
+cd /home/dzp/domain-sniper
 source venv/bin/activate
 python main.py --crawl-now
 ```
@@ -180,7 +187,7 @@ python main.py --crawl-now
 journalctl -u domain-sniper -n 50
 
 # 수동 실행으로 에러 확인
-cd /home/pi/domain-sniper
+cd /home/dzp/domain-sniper
 source venv/bin/activate
 python main.py
 ```

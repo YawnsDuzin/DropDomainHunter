@@ -48,3 +48,6 @@ build/
 tmp/
 temp/
 *.tmp
+
+# 기타
+.prompts.md

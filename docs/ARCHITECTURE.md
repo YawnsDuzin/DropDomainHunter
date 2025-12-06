@@ -118,10 +118,31 @@ class ExpiredDomainsCrawler:
     - search_keyword(keyword, max_pages)
 ```
 
+**URL 구조**:
+| URL | 용도 |
+|-----|------|
+| `www.expireddomains.net` | 메인 사이트, 로그인 |
+| `member.expireddomains.net` | 멤버 영역 (로그인 후 크롤링) |
+
+**TLD별 엔드포인트** (멤버 영역):
+- `/domains/expiredcom/` - .com 도메인
+- `/domains/expirednet/` - .net 도메인
+- `/domains/expiredio/` - .io 도메인
+- `/domains/combinedexpired/` - 전체 TLD 통합
+- `/domains/pendingdelete/` - 삭제 예정
+
+**로그인 흐름**:
+1. `/login/` 페이지 방문 → 쿠키 설정
+2. 폼 필드 동적 추출 (BeautifulSoup)
+3. `/logincheck/`로 POST 요청
+4. 리다이렉트 수동 처리 (302/303)
+5. `member.expireddomains.net` 세션 확인
+6. 세션 만료 시 자동 재로그인
+
 **기술 스택**:
-- `httpx`: 비동기 HTTP 클라이언트
+- `httpx`: 비동기 HTTP 클라이언트 (쿠키 기반 세션 유지)
 - `tenacity`: 재시도 로직
-- Rate limiting: 요청 간 2초 딜레이
+- Rate limiting: 요청 간 2초 딜레이, TLD 간 10초 딜레이
 
 #### 2.2 DomainParser
 
@@ -134,6 +155,17 @@ class DomainParser:
     - parse_expireddomains_html(html)
     - parse_parkio_json(data)
 ```
+
+**HTML 파싱 전략** (다양한 테이블 구조 지원):
+1. `table.base1` - 멤버 영역 기본 테이블
+2. `table#table` 또는 `table.domainlist`
+3. `div#content` 내부 테이블
+4. `a.field_domain` 또는 `a.namemark` 링크 포함 테이블
+
+**도메인 추출 방식**:
+- `td.field_domain > a` 태그
+- `a.namemark` 또는 `a.field_domain` 클래스
+- 정규식 폴백: `.com`, `.net` 등 패턴 매칭
 
 **필터링 규칙**:
 - 길이: 3-12자 (설정 가능)
