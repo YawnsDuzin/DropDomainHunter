@@ -49,16 +49,19 @@ class ExpiredDomainsCrawler:
 
     async def init_client(self) -> None:
         """HTTP 클라이언트 초기화"""
+        # 쿠키 저장소 명시적 설정
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(settings.http_timeout),
             headers={
                 "User-Agent": settings.user_agent,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.5",
-                "Accept-Encoding": "gzip, deflate",
+                "Accept-Encoding": "gzip, deflate, br",
                 "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
             },
             follow_redirects=True,
+            cookies=httpx.Cookies(),  # 쿠키 저장소 명시
         )
         logger.info("http_client_initialized")
 
@@ -118,6 +121,15 @@ class ExpiredDomainsCrawler:
             if login_success or (has_session and not login_failed):
                 self.logged_in = True
                 logger.info("expireddomains_login_success", username=settings.expired_domains_username)
+
+                # 로그인 후 expired-domains 페이지 방문해서 세션 확인
+                await asyncio.sleep(1)
+                test_page = await self.client.get(f"{self.BASE_URL}/expired-domains/")
+                if "logout" in test_page.text.lower():
+                    logger.info("session_verified_on_expired_domains")
+                else:
+                    logger.warning("session_not_verified_on_expired_domains")
+
                 return True
             else:
                 logger.warning("expireddomains_login_failed",
@@ -212,24 +224,24 @@ class ExpiredDomainsCrawler:
                 html = await self._fetch_page(url)
 
                 # 디버그: 첫 페이지 HTML 저장 (문제 진단용)
-                if page == 0 and not domains:
+                if page == 0:
                     try:
                         debug_file = f"/tmp/expireddomains_debug_{tld}.html"
                         with open(debug_file, "w", encoding="utf-8") as f:
                             f.write(html)
-                        logger.debug("debug_html_saved", file=debug_file)
-                    except Exception:
-                        pass
+                        logger.info("debug_html_saved", file=debug_file)
+                    except Exception as e:
+                        logger.warning("debug_html_save_failed", error=str(e))
 
-                domains = self.parser.parse_expireddomains_html(html)
+                page_domains = self.parser.parse_expireddomains_html(html)
 
-                if not domains:
+                if not page_domains:
                     logger.info("no_more_domains", page=page + 1)
                     break
 
                 # 필터링 적용
                 filtered = []
-                for d in domains:
+                for d in page_domains:
                     if self.parser.is_valid_domain(
                         d["name"],
                         d["tld"],
@@ -251,7 +263,7 @@ class ExpiredDomainsCrawler:
                 logger.info(
                     "page_crawled",
                     page=page + 1,
-                    found=len(domains),
+                    found=len(page_domains),
                     filtered=len(filtered)
                 )
 
