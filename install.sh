@@ -25,7 +25,8 @@ echo -e "${NC}"
 
 # 현재 디렉토리 확인
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${INSTALL_DIR:-/home/pi/domain-sniper}"
+# INSTALL_DIR="${INSTALL_DIR:-/home/pi/domain-sniper}"
+INSTALL_DIR="${INSTALL_DIR:-/home/dzp/domain-sniper}"
 
 echo -e "${YELLOW}📂 설치 디렉토리: ${INSTALL_DIR}${NC}"
 echo ""

@@ -8,7 +8,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import structlog
 
 logger = structlog.get_logger()
@@ -110,7 +110,7 @@ class CrawlLog:
 class Database:
     """비동기 SQLite 데이터베이스 관리자"""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: Union[str, Path]):
         self.db_path = Path(db_path)
         self._connection: Optional[aiosqlite.Connection] = None
 
@@ -460,7 +460,7 @@ class Database:
         await self._connection.commit()
 
 
-async def init_database(db_path: str | Path) -> Database:
+async def init_database(db_path: Union[str, Path]) -> Database:
     """데이터베이스 초기화 및 연결"""
     db = Database(db_path)
     await db.connect()

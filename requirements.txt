@@ -1,5 +1,5 @@
 # Domain Sniper - Raspberry Pi 4 Edition
-# Python 3.11+ 권장
+# Python 3.9+ 호환
 
 # Core
 python-dotenv==1.0.0
@@ -26,6 +26,7 @@ aiohttp==3.9.3
 fastapi==0.109.2
 uvicorn[standard]==0.27.1
 jinja2==3.1.3
+python-multipart==0.0.9
 
 # WHOIS
 python-whois==0.9.4
