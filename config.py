@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # ----- Discord 설정 -----
     discord_webhook_url: str = Field(default="", description="Discord Webhook URL")
 
+    # ----- ExpiredDomains.net 로그인 -----
+    expired_domains_username: str = Field(default="", description="ExpiredDomains.net 사용자명")
+    expired_domains_password: str = Field(default="", description="ExpiredDomains.net 비밀번호")
+
     # ----- 크롤링 설정 -----
     crawl_full_interval_hours: int = Field(default=24, description="전체 스캔 주기 (시간)")
     crawl_week_interval_hours: int = Field(default=3, description="7일 이내 스캔 주기 (시간)")

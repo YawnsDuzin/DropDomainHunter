@@ -24,6 +24,7 @@ class ExpiredDomainsCrawler:
 
     # expireddomains.net 기본 URL
     BASE_URL = "https://www.expireddomains.net"
+    LOGIN_URL = "https://www.expireddomains.net/login/"
 
     # 검색 엔드포인트
     ENDPOINTS = {
@@ -37,6 +38,7 @@ class ExpiredDomainsCrawler:
     def __init__(self):
         self.client: Optional[httpx.AsyncClient] = None
         self.parser = DomainParser()
+        self.logged_in = False
 
     async def __aenter__(self):
         await self.init_client()
@@ -59,6 +61,45 @@ class ExpiredDomainsCrawler:
             follow_redirects=True,
         )
         logger.info("http_client_initialized")
+
+        # 로그인 시도
+        if settings.expired_domains_username and settings.expired_domains_password:
+            await self._login()
+
+    async def _login(self) -> bool:
+        """ExpiredDomains.net 로그인"""
+        try:
+            # 로그인 페이지에서 CSRF 토큰 가져오기
+            login_page = await self.client.get(self.LOGIN_URL)
+
+            # 로그인 요청
+            login_data = {
+                "login": settings.expired_domains_username,
+                "password": settings.expired_domains_password,
+                "remember_me": "1",
+            }
+
+            response = await self.client.post(
+                self.LOGIN_URL,
+                data=login_data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Referer": self.LOGIN_URL,
+                }
+            )
+
+            # 로그인 성공 확인 (리다이렉트 또는 쿠키 확인)
+            if "logout" in response.text.lower() or response.status_code == 302:
+                self.logged_in = True
+                logger.info("expireddomains_login_success", username=settings.expired_domains_username)
+                return True
+            else:
+                logger.warning("expireddomains_login_failed", username=settings.expired_domains_username)
+                return False
+
+        except Exception as e:
+            logger.error("expireddomains_login_error", error=str(e))
+            return False
 
     async def close(self) -> None:
         """클라이언트 종료"""

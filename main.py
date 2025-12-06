@@ -361,7 +361,7 @@ class DomainSniper:
         logger.info("stopping_domain_sniper")
         self.running = False
 
-        if self.scheduler:
+        if self.scheduler and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
 
         if self.db:
