@@ -69,10 +69,10 @@ class ExpiredDomainsCrawler:
     async def _login(self) -> bool:
         """ExpiredDomains.net 로그인"""
         try:
-            # 로그인 페이지에서 CSRF 토큰 가져오기
+            # 로그인 페이지 먼저 방문 (쿠키 설정)
             login_page = await self.client.get(self.LOGIN_URL)
 
-            # 로그인 요청
+            # 로그인 요청 - ExpiredDomains.net 폼 필드명
             login_data = {
                 "login": settings.expired_domains_username,
                 "password": settings.expired_domains_password,
@@ -85,16 +85,45 @@ class ExpiredDomainsCrawler:
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Referer": self.LOGIN_URL,
+                    "Origin": "https://www.expireddomains.net",
                 }
             )
 
-            # 로그인 성공 확인 (리다이렉트 또는 쿠키 확인)
-            if "logout" in response.text.lower() or response.status_code == 302:
+            # 로그인 성공 확인 방법들:
+            # 1. 응답에 "logout" 링크가 있으면 성공
+            # 2. 쿠키에 세션 정보가 있으면 성공
+            # 3. 에러 메시지가 없으면 성공
+            response_text = response.text.lower()
+
+            # 로그인 실패 메시지 확인
+            login_failed = (
+                "invalid" in response_text or
+                "incorrect" in response_text or
+                "wrong" in response_text or
+                "error" in response_text and "login" in response_text
+            )
+
+            # 로그인 성공 확인
+            login_success = (
+                "logout" in response_text or
+                "my account" in response_text or
+                "member" in response_text
+            )
+
+            # 쿠키 확인
+            cookies = self.client.cookies
+            has_session = any("sess" in name.lower() or "member" in name.lower() or "user" in name.lower()
+                             for name in cookies.keys())
+
+            if login_success or (has_session and not login_failed):
                 self.logged_in = True
                 logger.info("expireddomains_login_success", username=settings.expired_domains_username)
                 return True
             else:
-                logger.warning("expireddomains_login_failed", username=settings.expired_domains_username)
+                logger.warning("expireddomains_login_failed",
+                             username=settings.expired_domains_username,
+                             has_session=has_session,
+                             cookies=list(cookies.keys()))
                 return False
 
         except Exception as e:
