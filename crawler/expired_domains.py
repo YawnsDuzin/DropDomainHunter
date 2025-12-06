@@ -210,6 +210,17 @@ class ExpiredDomainsCrawler:
                 logger.info("crawling_page", tld=tld, page=page + 1, url=url)
 
                 html = await self._fetch_page(url)
+
+                # 디버그: 첫 페이지 HTML 저장 (문제 진단용)
+                if page == 0 and not domains:
+                    try:
+                        debug_file = f"/tmp/expireddomains_debug_{tld}.html"
+                        with open(debug_file, "w", encoding="utf-8") as f:
+                            f.write(html)
+                        logger.debug("debug_html_saved", file=debug_file)
+                    except Exception:
+                        pass
+
                 domains = self.parser.parse_expireddomains_html(html)
 
                 if not domains:

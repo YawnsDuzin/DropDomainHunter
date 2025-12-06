@@ -142,27 +142,60 @@ class DomainParser:
         domains = []
         soup = BeautifulSoup(html, "lxml")
 
-        # 테이블 행 찾기
+        # 다양한 테이블 구조 시도
+        table = None
+
+        # 1. 기존 방식: class="base1"
         table = soup.find("table", class_="base1")
+
+        # 2. 새로운 방식: class 포함 "domain" 테이블
         if not table:
-            logger.warning("domain_table_not_found")
+            table = soup.find("table", id="table")
+
+        # 3. 첫 번째 테이블 시도
+        if not table:
+            tables = soup.find_all("table")
+            for t in tables:
+                # 도메인 링크가 있는 테이블 찾기
+                if t.find("a", class_="namemark") or t.find("a", title=True):
+                    table = t
+                    break
+
+        if not table:
+            # 디버그: 페이지에 로그인 필요 메시지가 있는지 확인
+            page_text = soup.get_text().lower()
+            if "login" in page_text and "please" in page_text:
+                logger.warning("domain_table_not_found", reason="login_required")
+            else:
+                logger.warning("domain_table_not_found", reason="table_not_found")
             return domains
 
+        # 테이블 행 찾기 - 다양한 방식 시도
         rows = table.find_all("tr", class_="base1")
+        if not rows:
+            rows = table.find_all("tr")[1:]  # 헤더 제외
 
         for row in rows:
             try:
                 cells = row.find_all("td")
-                if len(cells) < 5:
+                if len(cells) < 3:
                     continue
 
-                # 도메인 이름 추출
+                # 도메인 이름 추출 - 여러 방식 시도
                 domain_cell = cells[0]
-                domain_link = domain_cell.find("a", class_="namemark")
+                domain_link = domain_cell.find("a", class_="namemark")  # 원래 클래스
+                if not domain_link:
+                    domain_link = domain_cell.find("a", class_="field_domain")
+                if not domain_link:
+                    domain_link = domain_cell.find("a", title=True)
+                if not domain_link:
+                    domain_link = domain_cell.find("a")
                 if not domain_link:
                     continue
 
                 full_name = domain_link.get_text(strip=True)
+                if not full_name or "." not in full_name:
+                    continue
                 parsed = cls.parse_domain_name(full_name)
                 if not parsed:
                     continue
