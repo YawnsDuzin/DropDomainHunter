@@ -138,6 +138,57 @@
             </div>
         </div>
 
+        <!-- 데이터 소스 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-database"></i> 데이터 소스</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="use_expireddomains">
+                        <label class="form-check-label" for="use_expireddomains">
+                            ExpiredDomains.net
+                            <small class="text-muted d-block">계정 필요, 가장 포괄적인 데이터</small>
+                        </label>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="use_alternative_sources" checked>
+                        <label class="form-check-label" for="use_alternative_sources">
+                            대체 소스 사용
+                            <small class="text-muted d-block">계정 불필요, 무료 소스</small>
+                        </label>
+                    </div>
+                </div>
+                <div class="mb-0">
+                    <label class="form-label small">사용할 대체 소스</label>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-check">
+                                <input class="form-check-input alt-source-check" type="checkbox" value="snapnames" id="source_snapnames" checked>
+                                <label class="form-check-label" for="source_snapnames">SnapNames</label>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-check">
+                                <input class="form-check-input alt-source-check" type="checkbox" value="dynadot" id="source_dynadot" checked>
+                                <label class="form-check-label" for="source_dynadot">Dynadot</label>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-check">
+                                <input class="form-check-input alt-source-check" type="checkbox" value="estibot" id="source_estibot" checked>
+                                <label class="form-check-label" for="source_estibot">EstiBot</label>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="hidden" id="alternative_sources" value="snapnames,dynadot,estibot">
+                </div>
+            </div>
+        </div>
+
         <!-- 도메인 필터 -->
         <div class="card mb-4">
             <div class="card-header">
@@ -287,6 +338,11 @@ let statusCheckInterval = null;
 document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     checkInitialCrawlStatus();
+
+    // 대체 소스 체크박스 변경 이벤트
+    document.querySelectorAll('.alt-source-check').forEach(cb => {
+        cb.addEventListener('change', updateAlternativeSources);
+    });
 });
 
 async function loadSettings() {
@@ -305,6 +361,15 @@ async function loadSettings() {
             document.getElementById('crawl_week_interval_hours').value = s.crawl_week_interval_hours;
             document.getElementById('crawl_day_enabled').checked = s.crawl_day_enabled;
             document.getElementById('crawl_day_interval_minutes').value = s.crawl_day_interval_minutes;
+
+            // 데이터 소스
+            document.getElementById('use_expireddomains').checked = s.use_expireddomains !== false;
+            document.getElementById('use_alternative_sources').checked = s.use_alternative_sources !== false;
+            const altSources = (s.alternative_sources || 'snapnames,dynadot,estibot').split(',');
+            document.querySelectorAll('.alt-source-check').forEach(cb => {
+                cb.checked = altSources.includes(cb.value);
+            });
+            updateAlternativeSources();
 
             // 도메인 필터
             document.getElementById('min_domain_length').value = s.min_domain_length;
@@ -343,6 +408,12 @@ async function saveSettings() {
     formData.append('crawl_week_interval_hours', document.getElementById('crawl_week_interval_hours').value);
     formData.append('crawl_day_enabled', document.getElementById('crawl_day_enabled').checked ? 'true' : 'false');
     formData.append('crawl_day_interval_minutes', document.getElementById('crawl_day_interval_minutes').value);
+
+    // 데이터 소스
+    formData.append('use_expireddomains', document.getElementById('use_expireddomains').checked ? 'true' : 'false');
+    formData.append('use_alternative_sources', document.getElementById('use_alternative_sources').checked ? 'true' : 'false');
+    updateAlternativeSources();
+    formData.append('alternative_sources', document.getElementById('alternative_sources').value);
 
     // 도메인 필터
     formData.append('min_domain_length', document.getElementById('min_domain_length').value);
@@ -410,6 +481,15 @@ function applySettingsToUI(s) {
     document.getElementById('crawl_day_enabled').checked = s.crawl_day_enabled;
     document.getElementById('crawl_day_interval_minutes').value = s.crawl_day_interval_minutes;
 
+    // 데이터 소스
+    document.getElementById('use_expireddomains').checked = s.use_expireddomains !== false;
+    document.getElementById('use_alternative_sources').checked = s.use_alternative_sources !== false;
+    const altSources = (s.alternative_sources || 'snapnames,dynadot,estibot').split(',');
+    document.querySelectorAll('.alt-source-check').forEach(cb => {
+        cb.checked = altSources.includes(cb.value);
+    });
+    updateAlternativeSources();
+
     // 도메인 필터
     document.getElementById('min_domain_length').value = s.min_domain_length;
     document.getElementById('max_domain_length').value = s.max_domain_length;
@@ -424,6 +504,14 @@ function applySettingsToUI(s) {
 
     // 시스템
     document.getElementById('log_level').value = s.log_level;
+}
+
+function updateAlternativeSources() {
+    const sources = [];
+    document.querySelectorAll('.alt-source-check:checked').forEach(cb => {
+        sources.push(cb.value);
+    });
+    document.getElementById('alternative_sources').value = sources.join(',');
 }
 
 async function triggerCrawl(type) {

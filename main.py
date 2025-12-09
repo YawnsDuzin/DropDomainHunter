@@ -57,6 +57,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from config import settings, validate_settings
 from database import init_database, Database
 from crawler import ExpiredDomainsCrawler
+from crawler.alternative_sources import AlternativeSourcesCrawler, MultiSourceCrawler
 from crawler.state import crawl_state
 from scorer import DomainEvaluator
 from notifier import NotificationManager
@@ -292,7 +293,7 @@ class DomainSniper:
         logger.info("scheduler_reloaded")
 
     async def run_full_crawl(self, is_manual: bool = False) -> bool:
-        """전체 크롤링 실행"""
+        """전체 크롤링 실행 (다중 소스 지원)"""
         # 크롤링 상태 확인 및 시작
         if not await crawl_state.try_start("full", is_manual=is_manual):
             logger.warning("full_crawl_skipped", reason="already_running")
@@ -300,25 +301,68 @@ class DomainSniper:
 
         logger.info("starting_full_crawl", is_manual=is_manual)
         start_time = datetime.now()
+        all_domains = []
+        sources_used = []
 
         try:
-            await crawl_state.update_progress(10, "크롤러 초기화 중...")
+            await crawl_state.update_progress(5, "크롤러 초기화 중...")
 
-            async with ExpiredDomainsCrawler() as crawler:
-                await crawl_state.update_progress(20, "전체 TLD 크롤링 중...")
-                # 전체 TLD 크롤링 (30일 이내)
-                raw_domains = await crawler.crawl_all_tlds(
-                    days_until_expiry=30,
-                    max_pages_per_tld=5
-                )
+            # 런타임 설정 로드
+            runtime_settings = self._load_runtime_settings()
+            use_expireddomains = runtime_settings.get("use_expireddomains", settings.use_expireddomains)
+            use_alternative = runtime_settings.get("use_alternative_sources", settings.use_alternative_sources)
+            alt_sources = runtime_settings.get("alternative_sources", settings.alternative_sources)
+            if isinstance(alt_sources, str):
+                alt_sources = [s.strip() for s in alt_sources.split(",") if s.strip()]
+
+            # 1. ExpiredDomains.net 크롤링 (활성화된 경우)
+            if use_expireddomains:
+                try:
+                    await crawl_state.update_progress(10, "ExpiredDomains.net 크롤링 중...")
+                    async with ExpiredDomainsCrawler() as crawler:
+                        domains = await crawler.crawl_all_tlds(
+                            days_until_expiry=30,
+                            max_pages_per_tld=5
+                        )
+                        for d in domains:
+                            d["source"] = d.get("source", "expireddomains")
+                        all_domains.extend(domains)
+                        sources_used.append("expireddomains")
+                        logger.info("expireddomains_crawled", count=len(domains))
+                except Exception as e:
+                    logger.error("expireddomains_crawl_error", error=str(e))
+
+            # 2. 대체 소스 크롤링 (활성화된 경우)
+            if use_alternative and alt_sources:
+                try:
+                    await crawl_state.update_progress(40, "대체 소스 크롤링 중...")
+                    async with AlternativeSourcesCrawler() as crawler:
+                        domains = await crawler.crawl_all_sources(sources=alt_sources)
+                        all_domains.extend(domains)
+                        sources_used.extend(alt_sources)
+                        logger.info("alternative_sources_crawled", count=len(domains), sources=alt_sources)
+                except Exception as e:
+                    logger.error("alternative_sources_crawl_error", error=str(e))
+
+            # 중복 제거
+            seen = set()
+            unique_domains = []
+            for d in all_domains:
+                key = d.get("full_name", f"{d['name']}.{d['tld']}")
+                if key not in seen:
+                    seen.add(key)
+                    unique_domains.append(d)
+
+            logger.info("domains_deduplicated", original=len(all_domains), unique=len(unique_domains))
 
             await crawl_state.update_progress(70, "도메인 평가 및 저장 중...")
             # 평가 및 저장
-            result = await self._process_domains(raw_domains, "full_crawl")
+            result = await self._process_domains(unique_domains, "full_crawl")
 
             # 로그 기록
             duration = (datetime.now() - start_time).total_seconds()
-            await self._log_crawl("expireddomains.net", "full", result, duration)
+            source_str = ",".join(sources_used) if sources_used else "none"
+            await self._log_crawl(source_str, "full", result, duration)
 
             await crawl_state.update_progress(90, "알림 발송 중...")
             # 고점수 도메인 알림
@@ -326,7 +370,7 @@ class DomainSniper:
 
             # 크롤링 완료 알림 발송
             await self.notifier.send_crawl_summary(
-                source="전체 스캔",
+                source=f"전체 스캔 ({source_str})",
                 total_found=result['total_found'],
                 new_domains=result['new_domains'],
                 high_score_count=result['high_score_count'],
@@ -341,6 +385,18 @@ class DomainSniper:
             await self.notifier.send_error_alert("full_crawl", str(e))
             await crawl_state.finish(False, f"오류: {str(e)}")
             return False
+
+    def _load_runtime_settings(self) -> dict:
+        """런타임 설정 로드"""
+        import json
+        settings_path = Path(__file__).parent / "data" / "runtime_settings.json"
+        if settings_path.exists():
+            try:
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
 
     async def run_week_crawl(self, is_manual: bool = False) -> bool:
         """7일 이내 만료 도메인 크롤링"""

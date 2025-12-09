@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     crawl_week_interval_hours: int = Field(default=3, description="7일 이내 스캔 주기 (시간)")
     crawl_day_interval_minutes: int = Field(default=30, description="1일 이내 스캔 주기 (분)")
 
+    # ----- 데이터 소스 설정 -----
+    use_expireddomains: bool = Field(default=True, description="ExpiredDomains.net 사용")
+    use_alternative_sources: bool = Field(default=True, description="대체 소스 사용")
+    alternative_sources: str = Field(
+        default="snapnames,dynadot,estibot",
+        description="사용할 대체 소스 (쉼표로 구분)"
+    )
+
     # ----- 도메인 필터 -----
     min_domain_length: int = Field(default=3, description="최소 도메인 길이")
     max_domain_length: int = Field(default=12, description="최대 도메인 길이")
@@ -91,6 +99,11 @@ class Settings(BaseSettings):
     def daily_report_minute(self) -> int:
         """일일 리포트 시간 (분)"""
         return int(self.daily_report_time.split(":")[1])
+
+    @property
+    def alternative_sources_list(self) -> List[str]:
+        """대체 소스 목록 반환"""
+        return [s.strip().lower() for s in self.alternative_sources.split(",") if s.strip()]
 
     @property
     def program_full_name(self) -> str:

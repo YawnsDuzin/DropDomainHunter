@@ -543,6 +543,10 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             "crawl_week_interval_hours": 3,
             "crawl_day_enabled": True,
             "crawl_day_interval_minutes": 30,
+            # 데이터 소스
+            "use_expireddomains": settings.use_expireddomains,
+            "use_alternative_sources": settings.use_alternative_sources,
+            "alternative_sources": settings.alternative_sources,
             # 도메인 필터
             "min_domain_length": 3,
             "max_domain_length": 12,
@@ -608,6 +612,10 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
         crawl_week_interval_hours: Optional[str] = Form(None),
         crawl_day_enabled: Optional[str] = Form(None),
         crawl_day_interval_minutes: Optional[str] = Form(None),
+        # 데이터 소스
+        use_expireddomains: Optional[str] = Form(None),
+        use_alternative_sources: Optional[str] = Form(None),
+        alternative_sources: Optional[str] = Form(None),
         # 도메인 필터
         min_domain_length: Optional[str] = Form(None),
         max_domain_length: Optional[str] = Form(None),
@@ -637,6 +645,14 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             current["crawl_day_enabled"] = crawl_day_enabled == "true"
         if crawl_day_interval_minutes is not None and crawl_day_interval_minutes.strip():
             current["crawl_day_interval_minutes"] = int(crawl_day_interval_minutes)
+
+        # 데이터 소스 업데이트
+        if use_expireddomains is not None:
+            current["use_expireddomains"] = use_expireddomains == "true"
+        if use_alternative_sources is not None:
+            current["use_alternative_sources"] = use_alternative_sources == "true"
+        if alternative_sources is not None:
+            current["alternative_sources"] = alternative_sources.strip()
 
         # 도메인 필터 업데이트
         if min_domain_length is not None and min_domain_length.strip():
