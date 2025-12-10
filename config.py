@@ -56,6 +56,16 @@ class Settings(BaseSettings):
     web_enabled: bool = Field(default=True, description="웹 대시보드 활성화")
     web_port: int = Field(default=8000, description="웹 포트")
     web_host: str = Field(default="0.0.0.0", description="웹 호스트")
+    web_username: str = Field(default="admin", description="웹 로그인 사용자명")
+    web_password: str = Field(default="", description="웹 로그인 비밀번호 (비어있으면 인증 비활성화)")
+
+    # ----- 프록시 설정 -----
+    use_proxy: bool = Field(default=False, description="프록시 사용 여부")
+    proxy_list: str = Field(default="", description="프록시 목록 (쉼표로 구분)")
+
+    # ----- 도메인 확인 설정 -----
+    check_availability: bool = Field(default=True, description="도메인 가용성 자동 확인")
+    check_history: bool = Field(default=True, description="도메인 히스토리 자동 확인")
 
     # ----- 데이터베이스 설정 -----
     database_path: str = Field(default="domains.db", description="DB 파일 경로")
@@ -104,6 +114,16 @@ class Settings(BaseSettings):
     def alternative_sources_list(self) -> List[str]:
         """대체 소스 목록 반환"""
         return [s.strip().lower() for s in self.alternative_sources.split(",") if s.strip()]
+
+    @property
+    def proxy_list_items(self) -> List[str]:
+        """프록시 목록 반환"""
+        return [p.strip() for p in self.proxy_list.split(",") if p.strip()]
+
+    @property
+    def web_auth_enabled(self) -> bool:
+        """웹 인증 활성화 여부"""
+        return bool(self.web_password)
 
     @property
     def program_full_name(self) -> str:

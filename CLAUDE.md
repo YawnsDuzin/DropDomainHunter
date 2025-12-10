@@ -47,13 +47,19 @@ python crawler/expired_domains.py
 | `main.py` | Entry point, APScheduler orchestration, signal handling, `reload_scheduler()` |
 | `config.py` | Pydantic settings from `.env`, domain filters, scoring thresholds |
 | `crawler/expired_domains.py` | HTTP client with login, retry logic (tenacity), rate limiting |
-| `crawler/parser.py` | HTML parsing, domain validation, adult keyword filtering |
+| `crawler/parser.py` | HTML parsing with multi-strategy fallback, smart keyword matching |
+| `crawler/anti_blocking.py` | User-Agent rotation, adaptive delay, proxy rotation, human behavior |
 | `crawler/state.py` | Global crawl state tracking (progress, status, elapsed time) |
+| `checker/availability.py` | Domain availability check via RDAP/WHOIS protocols |
+| `checker/history.py` | Domain history via Archive.org Wayback Machine |
 | `scorer/evaluator.py` | Composite scoring, value estimation by score tier |
 | `scorer/length.py`, `keyword.py`, `pattern.py` | Individual scoring algorithms |
 | `database/models.py` | Domain, WatchlistItem, CrawlLog dataclasses + Database class |
 | `notifier/manager.py` | Unified notification dispatch |
+| `notifier/priority.py` | Alert prioritization (CRITICAL/HIGH/MEDIUM/LOW/BATCH) |
+| `notifier/telegram_bot.py` | Telegram callback handlers and bot commands |
 | `web/app.py` | FastAPI dashboard with Jinja2 templates, runtime settings API |
+| `web/auth.py` | HTTP Basic Auth and session-based authentication |
 
 ### Scheduler Jobs (APScheduler)
 - **full_crawl**: Daily at 06:00, all TLDs, 30-day expiry window
@@ -75,6 +81,9 @@ python crawler/expired_domains.py
 - `TELEGRAM_BOT_TOKEN/CHAT_ID`: Telegram notifications
 - `DISCORD_WEBHOOK_URL`: Discord notifications
 - `PROGRAM_NAME/PROGRAM_VERSION`: Program identity
+- `WEB_USERNAME/WEB_PASSWORD`: Web dashboard authentication
+- `USE_PROXY/PROXY_LIST`: Proxy rotation settings
+- `CHECK_AVAILABILITY/CHECK_HISTORY`: Domain verification toggles
 
 ### Runtime Configuration (`data/runtime_settings.json`)
 Managed via web dashboard, hot-reloadable:
@@ -99,6 +108,9 @@ Categories: TECH, FINANCE, BUSINESS, GENERIC
 - Web routes follow REST conventions with HTML templates and JSON API endpoints
 - **Runtime settings** saved to JSON, scheduler reloaded on change (`reload_scheduler`)
 - **Crawl state** tracked globally via `crawler/state.py` for real-time progress
+- **Multi-strategy parsing** in `RobustParser` (class-based → structure-based → regex)
+- **Adaptive delay** with exponential backoff on errors (429→3x, 403→2x)
+- **RDAP/WHOIS fallback** chain for domain availability checking
 
 ## Web Dashboard
 
