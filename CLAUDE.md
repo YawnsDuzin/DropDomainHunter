@@ -34,7 +34,7 @@ python crawler/expired_domains.py
 ## Architecture
 
 ### Core Flow
-1. **Crawling**: `ExpiredDomainsCrawler` fetches domains from expireddomains.net using httpx with session/cookie management for authenticated access
+1. **Crawling**: `MultiSourceCrawler` integrates multiple domain sources (expireddomains.net + alternatives) with anti-blocking
 2. **Parsing**: `DomainParser` extracts domain data from HTML tables using BeautifulSoup
 3. **Evaluation**: `DomainEvaluator` scores domains using weighted formula: `Length(35%) + Keyword(40%) + Pattern(25%)`
 4. **Storage**: Async SQLite via aiosqlite with WAL mode for concurrent access
@@ -47,6 +47,7 @@ python crawler/expired_domains.py
 | `main.py` | Entry point, APScheduler orchestration, signal handling, `reload_scheduler()` |
 | `config.py` | Pydantic settings from `.env`, domain filters, scoring thresholds |
 | `crawler/expired_domains.py` | HTTP client with login, retry logic (tenacity), rate limiting |
+| `crawler/alternative_sources.py` | Multi-source crawler (SnapNames, Dynadot, EstiBot) + `MultiSourceCrawler` |
 | `crawler/parser.py` | HTML parsing with multi-strategy fallback, smart keyword matching |
 | `crawler/anti_blocking.py` | User-Agent rotation, adaptive delay, proxy rotation, human behavior |
 | `crawler/state.py` | Global crawl state tracking (progress, status, elapsed time) |
@@ -111,6 +112,7 @@ Categories: TECH, FINANCE, BUSINESS, GENERIC
 - **Multi-strategy parsing** in `RobustParser` (class-based → structure-based → regex)
 - **Adaptive delay** with exponential backoff on errors (429→3x, 403→2x)
 - **RDAP/WHOIS fallback** chain for domain availability checking
+- **MultiSourceCrawler** unified multi-source crawling with stats tracking and health monitoring
 
 ## Web Dashboard
 

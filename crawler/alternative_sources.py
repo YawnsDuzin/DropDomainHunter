@@ -401,24 +401,186 @@ class VerisignZoneFileCrawler:
 # 통합 크롤러 - 기존 ExpiredDomainsCrawler와 함께 사용
 class MultiSourceCrawler:
     """
-    다중 소스 통합 크롤러
+    다중 소스 통합 크롤러 (강화 버전)
     ExpiredDomains.net + 대체 소스를 함께 사용
+
+    특징:
+    - 병렬/순차 크롤링 선택
+    - 소스별 통계 및 상태 추적
+    - 개별 소스 실패 시 다른 소스 계속 실행
+    - Anti-blocking 시스템 통합
+    - 재시도 로직
     """
 
-    def __init__(self):
+    def __init__(self, use_anti_blocking: bool = True):
         from .expired_domains import ExpiredDomainsCrawler
         self.expired_domains = ExpiredDomainsCrawler()
         self.alternative = AlternativeSourcesCrawler()
         self.parser = DomainParser()
+        self.use_anti_blocking = use_anti_blocking
+
+        # Anti-blocking 매니저 (선택적)
+        self.anti_blocking = None
+        if use_anti_blocking:
+            try:
+                from .anti_blocking import AntiBlockingManager
+                self.anti_blocking = AntiBlockingManager()
+            except ImportError:
+                logger.warning("anti_blocking_not_available")
+
+        # 소스별 통계
+        self._stats = {
+            "expireddomains": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
+            "snapnames": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
+            "dynadot": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
+            "estibot": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
+        }
+
+        # 소스 건강 상태
+        self._source_health = {
+            "expireddomains": True,
+            "snapnames": True,
+            "dynadot": True,
+            "estibot": True,
+        }
+
+        self._initialized = False
 
     async def __aenter__(self):
-        await self.expired_domains.init_client()
-        await self.alternative.init_client()
+        await self.init()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
+    async def init(self) -> None:
+        """크롤러 초기화"""
+        if self._initialized:
+            return
+
+        await self.expired_domains.init_client()
+        await self.alternative.init_client()
+        self._initialized = True
+        logger.info("multi_source_crawler_initialized")
+
+    async def close(self) -> None:
+        """크롤러 종료"""
         await self.expired_domains.close()
         await self.alternative.close()
+        self._initialized = False
+        logger.info("multi_source_crawler_closed")
+
+    def get_stats(self) -> Dict[str, Any]:
+        """소스별 통계 반환"""
+        return {
+            "sources": self._stats.copy(),
+            "health": self._source_health.copy(),
+        }
+
+    def get_healthy_sources(self) -> List[str]:
+        """건강한 소스 목록 반환"""
+        return [s for s, healthy in self._source_health.items() if healthy]
+
+    def _update_stats(self, source: str, success: bool, domain_count: int = 0, error: str = None):
+        """통계 업데이트"""
+        if source not in self._stats:
+            self._stats[source] = {"success": 0, "failed": 0, "domains": 0, "last_error": None}
+
+        if success:
+            self._stats[source]["success"] += 1
+            self._stats[source]["domains"] += domain_count
+            # 성공 시 건강 상태 복구
+            self._source_health[source] = True
+        else:
+            self._stats[source]["failed"] += 1
+            self._stats[source]["last_error"] = error
+            # 연속 3회 실패 시 건강 상태 비정상
+            if self._stats[source]["failed"] >= 3:
+                self._source_health[source] = False
+
+    async def _crawl_expireddomains(
+        self,
+        days_until_expiry: int,
+        max_pages_per_tld: int,
+        progress_callback: callable = None
+    ) -> List[Dict[str, Any]]:
+        """ExpiredDomains.net 크롤링 (내부)"""
+        try:
+            if progress_callback:
+                await progress_callback(10, "ExpiredDomains.net 크롤링 시작...")
+
+            domains = await self.expired_domains.crawl_all_tlds(
+                days_until_expiry=days_until_expiry,
+                max_pages_per_tld=max_pages_per_tld
+            )
+
+            # 소스 태그 추가
+            for d in domains:
+                d["source"] = d.get("source", "expireddomains")
+                if "full_name" not in d:
+                    d["full_name"] = f"{d['name']}.{d['tld']}"
+
+            self._update_stats("expireddomains", True, len(domains))
+            logger.info("expireddomains_crawled", count=len(domains))
+            return domains
+
+        except Exception as e:
+            self._update_stats("expireddomains", False, error=str(e))
+            logger.error("expireddomains_error", error=str(e))
+            return []
+
+    async def _crawl_alternative_source(
+        self,
+        source: str,
+        progress_callback: callable = None
+    ) -> List[Dict[str, Any]]:
+        """개별 대체 소스 크롤링 (내부)"""
+        crawl_methods = {
+            "snapnames": self.alternative.crawl_snapnames,
+            "dynadot": self.alternative.crawl_dynadot,
+            "estibot": self.alternative.crawl_estibot,
+        }
+
+        if source not in crawl_methods:
+            logger.warning("unknown_source", source=source)
+            return []
+
+        # 건강하지 않은 소스 스킵 (선택적)
+        if not self._source_health.get(source, True):
+            logger.warning("skipping_unhealthy_source", source=source)
+            return []
+
+        try:
+            if progress_callback:
+                await progress_callback(0, f"{source} 크롤링 중...")
+
+            # Anti-blocking 딜레이 적용
+            if self.anti_blocking:
+                await self.anti_blocking.delay.wait()
+
+            domains = await crawl_methods[source]()
+
+            if self.anti_blocking:
+                self.anti_blocking.delay.on_success()
+
+            self._update_stats(source, True, len(domains))
+            logger.info(f"{source}_crawled", count=len(domains))
+            return domains
+
+        except Exception as e:
+            if self.anti_blocking:
+                # HTTP 에러 코드 추출 시도
+                error_str = str(e)
+                if "429" in error_str:
+                    self.anti_blocking.delay.on_error(429)
+                elif "403" in error_str:
+                    self.anti_blocking.delay.on_error(403)
+                else:
+                    self.anti_blocking.delay.on_error(500)
+
+            self._update_stats(source, False, error=str(e))
+            logger.error(f"{source}_error", error=str(e))
+            return []
 
     async def crawl_all(
         self,
@@ -426,7 +588,9 @@ class MultiSourceCrawler:
         use_alternative: bool = True,
         days_until_expiry: int = 30,
         max_pages_per_tld: int = 3,
-        alternative_sources: Optional[List[str]] = None
+        alternative_sources: Optional[List[str]] = None,
+        parallel: bool = False,
+        progress_callback: callable = None
     ) -> List[Dict[str, Any]]:
         """
         모든 소스에서 크롤링
@@ -437,6 +601,109 @@ class MultiSourceCrawler:
             days_until_expiry: 만료 예정 일수
             max_pages_per_tld: TLD당 최대 페이지 수
             alternative_sources: 사용할 대체 소스 리스트
+            parallel: 대체 소스 병렬 크롤링 여부
+            progress_callback: 진행 상황 콜백 (progress_percent, message)
+
+        Returns:
+            도메인 정보 리스트 (중복 제거됨)
+        """
+        all_domains = []
+        seen = set()
+        sources_results = {}
+
+        # 초기화 확인
+        if not self._initialized:
+            await self.init()
+
+        # 1. ExpiredDomains.net 크롤링
+        if use_expireddomains:
+            logger.info("crawling_expireddomains")
+            domains = await self._crawl_expireddomains(
+                days_until_expiry=days_until_expiry,
+                max_pages_per_tld=max_pages_per_tld,
+                progress_callback=progress_callback
+            )
+            sources_results["expireddomains"] = len(domains)
+
+            for d in domains:
+                key = d.get("full_name", f"{d['name']}.{d['tld']}")
+                if key not in seen:
+                    seen.add(key)
+                    all_domains.append(d)
+
+        # 2. 대체 소스 크롤링
+        if use_alternative:
+            if alternative_sources is None:
+                alternative_sources = ["snapnames", "dynadot", "estibot"]
+
+            if progress_callback:
+                await progress_callback(40, "대체 소스 크롤링 시작...")
+
+            if parallel:
+                # 병렬 크롤링
+                tasks = [
+                    self._crawl_alternative_source(source, None)
+                    for source in alternative_sources
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for source, result in zip(alternative_sources, results):
+                    if isinstance(result, Exception):
+                        logger.error(f"{source}_parallel_error", error=str(result))
+                        sources_results[source] = 0
+                    else:
+                        sources_results[source] = len(result)
+                        for d in result:
+                            key = d["full_name"]
+                            if key not in seen:
+                                seen.add(key)
+                                all_domains.append(d)
+            else:
+                # 순차 크롤링
+                for i, source in enumerate(alternative_sources):
+                    if progress_callback:
+                        progress = 40 + (i * 20 // len(alternative_sources))
+                        await progress_callback(progress, f"{source} 크롤링 중...")
+
+                    domains = await self._crawl_alternative_source(source, None)
+                    sources_results[source] = len(domains)
+
+                    for d in domains:
+                        key = d["full_name"]
+                        if key not in seen:
+                            seen.add(key)
+                            all_domains.append(d)
+
+                    # 소스 간 딜레이
+                    if self.anti_blocking:
+                        await asyncio.sleep(3)
+                    else:
+                        await asyncio.sleep(5)
+
+        if progress_callback:
+            await progress_callback(60, "중복 제거 완료...")
+
+        logger.info(
+            "multi_source_crawl_complete",
+            total=len(all_domains),
+            sources=sources_results
+        )
+
+        return all_domains
+
+    async def crawl_pending_delete(
+        self,
+        max_pages: int = 3,
+        use_alternative: bool = True,
+        alternative_sources: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        삭제 예정 도메인 크롤링 (1일 이내)
+
+        Args:
+            max_pages: 최대 페이지 수
+            use_alternative: 대체 소스 사용 여부
+            alternative_sources: 사용할 대체 소스 리스트
 
         Returns:
             도메인 정보 리스트 (중복 제거됨)
@@ -444,42 +711,85 @@ class MultiSourceCrawler:
         all_domains = []
         seen = set()
 
-        # ExpiredDomains.net 크롤링
-        if use_expireddomains:
-            try:
-                logger.info("crawling_expireddomains")
-                domains = await self.expired_domains.crawl_all_tlds(
-                    days_until_expiry=days_until_expiry,
-                    max_pages_per_tld=max_pages_per_tld
-                )
-                for d in domains:
-                    key = d.get("full_name", f"{d['name']}.{d['tld']}")
-                    if key not in seen:
-                        seen.add(key)
-                        d["source"] = d.get("source", "expireddomains")
-                        all_domains.append(d)
-                logger.info("expireddomains_done", count=len(domains))
-            except Exception as e:
-                logger.error("expireddomains_error", error=str(e))
+        # 초기화 확인
+        if not self._initialized:
+            await self.init()
 
-        # 대체 소스 크롤링
+        # ExpiredDomains.net pending delete
+        try:
+            domains = await self.expired_domains.crawl_pending_delete(max_pages=max_pages)
+            for d in domains:
+                d["source"] = d.get("source", "expireddomains")
+                if "full_name" not in d:
+                    d["full_name"] = f"{d['name']}.{d['tld']}"
+                key = d["full_name"]
+                if key not in seen:
+                    seen.add(key)
+                    all_domains.append(d)
+            self._update_stats("expireddomains", True, len(domains))
+        except Exception as e:
+            self._update_stats("expireddomains", False, error=str(e))
+            logger.error("pending_delete_expireddomains_error", error=str(e))
+
+        # 대체 소스 (EstiBot은 pending delete 전문)
         if use_alternative:
-            try:
-                logger.info("crawling_alternative_sources")
-                domains = await self.alternative.crawl_all_sources(
-                    sources=alternative_sources
-                )
+            if alternative_sources is None:
+                alternative_sources = ["estibot"]  # EstiBot은 PendingDelete 전문
+
+            for source in alternative_sources:
+                domains = await self._crawl_alternative_source(source)
                 for d in domains:
                     key = d["full_name"]
                     if key not in seen:
                         seen.add(key)
                         all_domains.append(d)
-                logger.info("alternative_sources_done", count=len(domains))
-            except Exception as e:
-                logger.error("alternative_sources_error", error=str(e))
 
-        logger.info("multi_source_crawl_complete", total=len(all_domains))
+        logger.info("pending_delete_crawl_complete", total=len(all_domains))
         return all_domains
+
+    async def search_keyword(
+        self,
+        keyword: str,
+        max_pages: int = 2
+    ) -> List[Dict[str, Any]]:
+        """
+        키워드로 도메인 검색
+
+        Args:
+            keyword: 검색 키워드
+            max_pages: 최대 페이지 수
+
+        Returns:
+            도메인 정보 리스트
+        """
+        if not self._initialized:
+            await self.init()
+
+        try:
+            return await self.expired_domains.search_keyword(keyword, max_pages)
+        except Exception as e:
+            logger.error("keyword_search_error", keyword=keyword, error=str(e))
+            return []
+
+    def reset_stats(self) -> None:
+        """통계 초기화"""
+        for source in self._stats:
+            self._stats[source] = {"success": 0, "failed": 0, "domains": 0, "last_error": None}
+        for source in self._source_health:
+            self._source_health[source] = True
+        logger.info("stats_reset")
+
+    def reset_source_health(self, source: str = None) -> None:
+        """소스 건강 상태 초기화"""
+        if source:
+            if source in self._source_health:
+                self._source_health[source] = True
+                self._stats[source]["failed"] = 0
+        else:
+            for s in self._source_health:
+                self._source_health[s] = True
+                self._stats[s]["failed"] = 0
+        logger.info("source_health_reset", source=source or "all")
 
 
 # 테스트

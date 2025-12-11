@@ -361,9 +361,76 @@ async def process_domain(domain_data):
 
 ---
 
+---
+
+## 10. 다중 소스 통합 크롤러 (강화)
+
+### 파일: `crawler/alternative_sources.py`
+
+#### 10.1 MultiSourceCrawler 강화
+
+**구현 내용:**
+- ExpiredDomains.net + 대체 소스 통합
+- 병렬/순차 크롤링 선택
+- Anti-blocking 시스템 통합
+- 소스별 통계 및 건강 상태 추적
+- 개별 소스 실패 시 다른 소스 계속 실행
+- 진행 상황 콜백 지원
+
+```python
+from crawler import MultiSourceCrawler
+
+async with MultiSourceCrawler(use_anti_blocking=True) as crawler:
+    # 모든 소스에서 크롤링
+    domains = await crawler.crawl_all(
+        use_expireddomains=True,
+        use_alternative=True,
+        days_until_expiry=30,
+        max_pages_per_tld=5,
+        alternative_sources=["snapnames", "dynadot", "estibot"],
+        parallel=True,  # 대체 소스 병렬 크롤링
+        progress_callback=async_callback  # 진행 상황 콜백
+    )
+
+    # 소스별 통계 확인
+    stats = crawler.get_stats()
+    print(stats["sources"])  # 소스별 성공/실패/도메인 수
+    print(stats["health"])   # 소스별 건강 상태
+```
+
+#### 10.2 소스 건강 관리
+
+**구현 내용:**
+- 연속 3회 실패 시 자동으로 건강 상태 비정상 처리
+- 비정상 소스 자동 스킵 (선택적)
+- 성공 시 자동 복구
+
+```python
+# 건강한 소스만 조회
+healthy_sources = crawler.get_healthy_sources()
+
+# 특정 소스 건강 상태 리셋
+crawler.reset_source_health("snapnames")
+
+# 모든 소스 건강 상태 리셋
+crawler.reset_source_health()
+```
+
+#### 10.3 지원 소스
+
+| 소스 | 설명 | 특징 |
+|-----|------|------|
+| expireddomains | ExpiredDomains.net | 메인 소스, 로그인 필요 |
+| snapnames | SnapNames | CSV 다운로드, 무료 |
+| dynadot | Dynadot | CSV 다운로드, 백오더 |
+| estibot | EstiBot | PendingDelete 전문 |
+
+---
+
 ## 변경 이력
 
 | 버전 | 날짜 | 변경 내용 |
 |-----|------|----------|
+| 1.2.0 | 2024-12 | 다중 소스 통합 크롤러 강화 |
 | 1.1.0 | 2024-12 | 차단 방지, 도메인 확인, 알림 개선, 웹 인증 |
 | 1.0.0 | 2024-12 | 초기 릴리즈 |
