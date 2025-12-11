@@ -1,19 +1,101 @@
 """
 Domain Sniper - 도메인 가용성 확인
 WHOIS, RDAP 프로토콜을 사용하여 도메인 등록 가능 여부를 확인합니다.
+
+Rate Limiting 및 Anti-Blocking 적용:
+- 적응형 딜레이 (성공 시 감소, 에러 시 증가)
+- 동시 요청 수 제한
+- 지수 백오프
+- 캐시 활용
 """
 
 import asyncio
 import socket
+import random
 from dataclasses import dataclass, field
 from datetime import datetime, date
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from enum import Enum
 
 import httpx
 import structlog
 
 logger = structlog.get_logger()
+
+
+class AdaptiveRateLimiter:
+    """
+    적응형 Rate Limiter
+    - 성공 시 딜레이 감소
+    - 에러 시 딜레이 증가 (지수 백오프)
+    - 최소/최대 딜레이 제한
+    """
+
+    def __init__(
+        self,
+        base_delay: float = 1.0,
+        min_delay: float = 0.3,
+        max_delay: float = 30.0,
+        success_factor: float = 0.9,
+        error_factor: float = 2.0
+    ):
+        self.base_delay = base_delay
+        self.min_delay = min_delay
+        self.max_delay = max_delay
+        self.success_factor = success_factor
+        self.error_factor = error_factor
+        self.current_delay = base_delay
+        self._consecutive_errors = 0
+        self._last_request_time = 0.0
+
+    async def wait(self) -> None:
+        """다음 요청 전 대기"""
+        # 지터 추가 (20% 랜덤)
+        jitter = random.uniform(0.8, 1.2)
+        wait_time = self.current_delay * jitter
+
+        # 마지막 요청 이후 경과 시간 고려
+        elapsed = asyncio.get_event_loop().time() - self._last_request_time
+        if elapsed < wait_time:
+            await asyncio.sleep(wait_time - elapsed)
+
+        self._last_request_time = asyncio.get_event_loop().time()
+
+    def on_success(self) -> None:
+        """성공 시 딜레이 감소"""
+        self._consecutive_errors = 0
+        self.current_delay = max(
+            self.min_delay,
+            self.current_delay * self.success_factor
+        )
+
+    def on_error(self, status_code: int = 0) -> None:
+        """에러 시 딜레이 증가"""
+        self._consecutive_errors += 1
+
+        # 특정 에러 코드별 처리
+        if status_code == 429:  # Too Many Requests
+            factor = self.error_factor * 2
+        elif status_code == 503:  # Service Unavailable
+            factor = self.error_factor * 1.5
+        else:
+            factor = self.error_factor
+
+        self.current_delay = min(
+            self.max_delay,
+            self.current_delay * factor
+        )
+
+        logger.warning(
+            "rate_limiter_backoff",
+            consecutive_errors=self._consecutive_errors,
+            new_delay=self.current_delay
+        )
+
+    def reset(self) -> None:
+        """딜레이 초기화"""
+        self.current_delay = self.base_delay
+        self._consecutive_errors = 0
 
 
 class DomainStatus(Enum):
@@ -434,18 +516,56 @@ class DomainAvailabilityChecker:
     """
     도메인 가용성 확인 통합 클래스
     RDAP를 우선 사용하고, 실패 시 WHOIS 사용
+
+    Anti-Blocking 기능:
+    - 적응형 Rate Limiting
+    - 동시 요청 수 제한
+    - 캐시 활용으로 중복 요청 방지
+    - 요청 간 랜덤 지터
     """
 
-    def __init__(self, timeout: float = 10.0, use_cache: bool = True, cache_ttl: int = 3600):
+    def __init__(
+        self,
+        timeout: float = 10.0,
+        use_cache: bool = True,
+        cache_ttl: int = 3600,
+        base_delay: float = 1.0,
+        max_concurrency: int = 3
+    ):
         self.rdap = RDAPChecker(timeout=timeout)
         self.whois = WHOISChecker(timeout=timeout)
         self.use_cache = use_cache
         self.cache_ttl = cache_ttl
         self._cache: Dict[str, tuple] = {}  # {domain: (result, timestamp)}
 
+        # Rate Limiter (RDAP/WHOIS 서버별로 분리)
+        self._rdap_limiter = AdaptiveRateLimiter(
+            base_delay=base_delay,
+            min_delay=0.5,
+            max_delay=30.0
+        )
+        self._whois_limiter = AdaptiveRateLimiter(
+            base_delay=base_delay * 1.5,  # WHOIS는 더 보수적으로
+            min_delay=1.0,
+            max_delay=60.0
+        )
+
+        # 동시 요청 제한
+        self._semaphore = asyncio.Semaphore(max_concurrency)
+
+        # 통계
+        self._stats = {
+            "total_checked": 0,
+            "available": 0,
+            "registered": 0,
+            "errors": 0,
+            "cache_hits": 0
+        }
+
     async def check(self, domain: str, force_refresh: bool = False) -> AvailabilityResult:
         """
         도메인 가용성 확인 (RDAP -> WHOIS 순서)
+        Rate Limiting 적용됨
 
         Args:
             domain: 확인할 도메인
@@ -455,21 +575,43 @@ class DomainAvailabilityChecker:
             AvailabilityResult
         """
         domain = domain.lower().strip()
+        self._stats["total_checked"] += 1
 
         # 캐시 확인
         if self.use_cache and not force_refresh:
             cached = self._get_from_cache(domain)
             if cached:
                 logger.debug("availability_cache_hit", domain=domain)
+                self._stats["cache_hits"] += 1
                 return cached
 
-        # RDAP 시도
-        result = await self.rdap.check(domain)
+        # Semaphore로 동시 요청 제한
+        async with self._semaphore:
+            # RDAP 시도 (Rate Limit 적용)
+            await self._rdap_limiter.wait()
+            result = await self.rdap.check(domain)
 
-        # RDAP 실패 시 WHOIS 시도
-        if result.status == DomainStatus.ERROR:
-            logger.debug("rdap_failed_trying_whois", domain=domain)
-            result = await self.whois.check(domain)
+            if result.status == DomainStatus.ERROR:
+                self._rdap_limiter.on_error()
+                # WHOIS 시도 (Rate Limit 적용)
+                logger.debug("rdap_failed_trying_whois", domain=domain)
+                await self._whois_limiter.wait()
+                result = await self.whois.check(domain)
+
+                if result.status == DomainStatus.ERROR:
+                    self._whois_limiter.on_error()
+                else:
+                    self._whois_limiter.on_success()
+            else:
+                self._rdap_limiter.on_success()
+
+        # 통계 업데이트
+        if result.available is True:
+            self._stats["available"] += 1
+        elif result.available is False:
+            self._stats["registered"] += 1
+        else:
+            self._stats["errors"] += 1
 
         # 캐시 저장
         if self.use_cache and result.status != DomainStatus.ERROR:
@@ -488,47 +630,156 @@ class DomainAvailabilityChecker:
     async def check_batch(
         self,
         domains: List[str],
-        concurrency: int = 5,
-        delay: float = 0.5
+        concurrency: int = 3,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> List[AvailabilityResult]:
         """
-        여러 도메인 일괄 확인
+        여러 도메인 일괄 확인 (Rate Limiting 적용)
 
         Args:
             domains: 도메인 리스트
-            concurrency: 동시 요청 수
-            delay: 요청 간 딜레이
+            concurrency: 동시 요청 수 (기본 3, 너무 높으면 차단됨)
+            progress_callback: 진행 상황 콜백 (checked, total, current_domain)
 
         Returns:
             AvailabilityResult 리스트
         """
-        semaphore = asyncio.Semaphore(concurrency)
+        # 동시 요청 수 제한 (너무 많으면 차단 위험)
+        concurrency = min(concurrency, 5)
+        total = len(domains)
         results = []
+        checked = 0
 
-        async def check_with_limit(domain: str):
-            async with semaphore:
-                result = await self.check(domain)
-                await asyncio.sleep(delay)
-                return result
+        logger.info("batch_availability_check_start", total=total, concurrency=concurrency)
 
-        tasks = [check_with_limit(d) for d in domains]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # 배치 처리 (concurrency 단위로)
+        for i in range(0, total, concurrency):
+            batch = domains[i:i + concurrency]
+            tasks = [self.check(d) for d in batch]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 예외 처리
-        final_results = []
-        for domain, result in zip(domains, results):
-            if isinstance(result, Exception):
-                final_results.append(AvailabilityResult(
-                    domain=domain,
-                    available=None,
-                    status=DomainStatus.ERROR,
-                    error=str(result),
-                    source="batch"
-                ))
+            # 결과 처리
+            for domain, result in zip(batch, batch_results):
+                checked += 1
+                if isinstance(result, Exception):
+                    results.append(AvailabilityResult(
+                        domain=domain,
+                        available=None,
+                        status=DomainStatus.ERROR,
+                        error=str(result),
+                        source="batch"
+                    ))
+                else:
+                    results.append(result)
+
+                # 진행 상황 콜백
+                if progress_callback:
+                    try:
+                        progress_callback(checked, total, domain)
+                    except Exception:
+                        pass
+
+            # 배치 간 추가 딜레이 (서버 부하 방지)
+            if i + concurrency < total:
+                await asyncio.sleep(random.uniform(1.0, 2.0))
+
+        logger.info(
+            "batch_availability_check_complete",
+            total=total,
+            available=self._stats["available"],
+            registered=self._stats["registered"],
+            errors=self._stats["errors"]
+        )
+
+        return results
+
+    async def filter_available_domains(
+        self,
+        domains: List[Dict[str, Any]],
+        concurrency: int = 3,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        등록 가능한 도메인만 필터링
+
+        Args:
+            domains: 도메인 정보 리스트 (full_name 또는 name+tld 필드 필요)
+            concurrency: 동시 요청 수
+            progress_callback: 진행 상황 콜백
+
+        Returns:
+            등록 가능한 도메인만 포함된 리스트
+        """
+        if not domains:
+            return []
+
+        # 도메인 이름 추출
+        domain_names = []
+        for d in domains:
+            if "full_name" in d:
+                domain_names.append(d["full_name"])
+            elif "name" in d and "tld" in d:
+                domain_names.append(f"{d['name']}.{d['tld']}")
             else:
-                final_results.append(result)
+                continue
 
-        return final_results
+        logger.info("filtering_available_domains", total=len(domain_names))
+
+        # 가용성 확인
+        results = await self.check_batch(
+            domain_names,
+            concurrency=concurrency,
+            progress_callback=progress_callback
+        )
+
+        # 결과 매핑
+        availability_map = {r.domain: r for r in results}
+
+        # 등록 가능한 도메인만 필터
+        available_domains = []
+        for d in domains:
+            if "full_name" in d:
+                domain_name = d["full_name"]
+            elif "name" in d and "tld" in d:
+                domain_name = f"{d['name']}.{d['tld']}"
+            else:
+                continue
+
+            result = availability_map.get(domain_name)
+            if result and result.available is True:
+                # 가용성 정보 추가
+                d["availability_checked"] = True
+                d["availability_status"] = result.status.value
+                d["availability_source"] = result.source
+                available_domains.append(d)
+
+        logger.info(
+            "available_domains_filtered",
+            original=len(domains),
+            available=len(available_domains)
+        )
+
+        return available_domains
+
+    def get_stats(self) -> Dict[str, Any]:
+        """통계 반환"""
+        return {
+            **self._stats,
+            "rdap_delay": round(self._rdap_limiter.current_delay, 2),
+            "whois_delay": round(self._whois_limiter.current_delay, 2)
+        }
+
+    def reset_stats(self) -> None:
+        """통계 초기화"""
+        self._stats = {
+            "total_checked": 0,
+            "available": 0,
+            "registered": 0,
+            "errors": 0,
+            "cache_hits": 0
+        }
+        self._rdap_limiter.reset()
+        self._whois_limiter.reset()
 
     def _get_from_cache(self, domain: str) -> Optional[AvailabilityResult]:
         """캐시에서 결과 조회"""

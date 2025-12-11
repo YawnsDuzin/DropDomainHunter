@@ -49,10 +49,38 @@ class ExpiredDomainsCrawler:
         "domain_search": "/domain-name-search/",
     }
 
-    def __init__(self):
+    def __init__(self, filter_settings: Optional[Dict[str, Any]] = None):
+        """
+        크롤러 초기화
+
+        Args:
+            filter_settings: 도메인 필터 설정 (선택)
+                - min_domain_length: 최소 도메인 길이
+                - max_domain_length: 최대 도메인 길이
+                - allowed_tlds: 허용된 TLD 리스트
+                - allow_numbers: 숫자 허용 여부
+                - allow_hyphens: 하이픈 허용 여부
+        """
         self.client: Optional[httpx.AsyncClient] = None
         self.parser = DomainParser()
         self.logged_in = False
+
+        # 필터 설정 (런타임 설정 > config 기본값)
+        self.filter_settings = filter_settings or {}
+        self.min_domain_length = self.filter_settings.get("min_domain_length", settings.min_domain_length)
+        self.max_domain_length = self.filter_settings.get("max_domain_length", settings.max_domain_length)
+        self.allowed_tlds = self.filter_settings.get("allowed_tlds", settings.tld_list)
+        self.allow_numbers = self.filter_settings.get("allow_numbers", settings.allow_numbers)
+        self.allow_hyphens = self.filter_settings.get("allow_hyphens", settings.allow_hyphens)
+
+        logger.info(
+            "crawler_filter_settings",
+            min_length=self.min_domain_length,
+            max_length=self.max_domain_length,
+            tlds=self.allowed_tlds,
+            allow_numbers=self.allow_numbers,
+            allow_hyphens=self.allow_hyphens
+        )
 
     async def __aenter__(self):
         await self.init_client()
@@ -403,14 +431,14 @@ class ExpiredDomainsCrawler:
         # 필터 파라미터
         params = {}
 
-        # 길이 필터
-        params["fmaxchars"] = str(settings.max_domain_length)
-        params["fminchars"] = str(settings.min_domain_length)
+        # 길이 필터 (인스턴스 설정 사용)
+        params["fmaxchars"] = str(self.max_domain_length)
+        params["fminchars"] = str(self.min_domain_length)
 
-        # 하이픈/숫자 필터
-        if not settings.allow_hyphens:
+        # 하이픈/숫자 필터 (인스턴스 설정 사용)
+        if not self.allow_hyphens:
             params["fhyphens"] = "1"  # 하이픈 제외
-        if not settings.allow_numbers:
+        if not self.allow_numbers:
             params["fnumbers"] = "1"  # 숫자 제외
 
         # TLD 필터 (combined 리스트 사용 시)
@@ -445,17 +473,17 @@ class ExpiredDomainsCrawler:
                     logger.info("no_more_domains", page=page + 1)
                     break
 
-                # 필터링 적용
+                # 필터링 적용 (인스턴스 설정 사용)
                 filtered = []
                 for d in page_domains:
                     if self.parser.is_valid_domain(
                         d["name"],
                         d["tld"],
-                        min_length=settings.min_domain_length,
-                        max_length=settings.max_domain_length,
-                        allowed_tlds=settings.tld_list,
-                        allow_numbers=settings.allow_numbers,
-                        allow_hyphens=settings.allow_hyphens
+                        min_length=self.min_domain_length,
+                        max_length=self.max_domain_length,
+                        allowed_tlds=self.allowed_tlds,
+                        allow_numbers=self.allow_numbers,
+                        allow_hyphens=self.allow_hyphens
                     ):
                         # 만료일 필터
                         if d.get("expiry_date"):
@@ -502,7 +530,8 @@ class ExpiredDomainsCrawler:
         """
         all_domains = []
 
-        for tld in settings.tld_list:
+        # 허용된 TLD 리스트 사용 (인스턴스 설정)
+        for tld in self.allowed_tlds:
             logger.info("crawling_tld", tld=tld)
 
             try:
@@ -534,14 +563,15 @@ class ExpiredDomainsCrawler:
         """
         all_domains = []
 
+        # 인스턴스 필터 설정 사용
         params = {
-            "fmaxchars": str(settings.max_domain_length),
-            "fminchars": str(settings.min_domain_length),
+            "fmaxchars": str(self.max_domain_length),
+            "fminchars": str(self.min_domain_length),
         }
 
-        if not settings.allow_hyphens:
+        if not self.allow_hyphens:
             params["fhyphens"] = "1"
-        if not settings.allow_numbers:
+        if not self.allow_numbers:
             params["fnumbers"] = "1"
 
         # 멤버 영역 URL 사용
@@ -558,17 +588,17 @@ class ExpiredDomainsCrawler:
                 if not domains:
                     break
 
-                # 필터링
+                # 필터링 (인스턴스 설정 사용)
                 filtered = []
                 for d in domains:
                     if self.parser.is_valid_domain(
                         d["name"],
                         d["tld"],
-                        min_length=settings.min_domain_length,
-                        max_length=settings.max_domain_length,
-                        allowed_tlds=settings.tld_list,
-                        allow_numbers=settings.allow_numbers,
-                        allow_hyphens=settings.allow_hyphens
+                        min_length=self.min_domain_length,
+                        max_length=self.max_domain_length,
+                        allowed_tlds=self.allowed_tlds,
+                        allow_numbers=self.allow_numbers,
+                        allow_hyphens=self.allow_hyphens
                     ):
                         # 1일 이내 만료로 설정
                         d["expiry_date"] = date.today() + timedelta(days=1)
@@ -599,10 +629,11 @@ class ExpiredDomainsCrawler:
         """
         all_domains = []
 
+        # 인스턴스 필터 설정 사용
         params = {
             "q": keyword,
-            "fmaxchars": str(settings.max_domain_length),
-            "fminchars": str(settings.min_domain_length),
+            "fmaxchars": str(self.max_domain_length),
+            "fminchars": str(self.min_domain_length),
         }
 
         base_url = f"{self.BASE_URL}/domain-name-search/"
@@ -620,16 +651,16 @@ class ExpiredDomainsCrawler:
                 if not domains:
                     break
 
-                # 필터링
+                # 필터링 (인스턴스 설정 사용)
                 for d in domains:
                     if self.parser.is_valid_domain(
                         d["name"],
                         d["tld"],
-                        min_length=settings.min_domain_length,
-                        max_length=settings.max_domain_length,
-                        allowed_tlds=settings.tld_list,
-                        allow_numbers=settings.allow_numbers,
-                        allow_hyphens=settings.allow_hyphens
+                        min_length=self.min_domain_length,
+                        max_length=self.max_domain_length,
+                        allowed_tlds=self.allowed_tlds,
+                        allow_numbers=self.allow_numbers,
+                        allow_hyphens=self.allow_hyphens
                     ):
                         all_domains.append(d)
 

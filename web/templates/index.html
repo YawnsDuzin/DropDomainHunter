@@ -138,16 +138,42 @@
             <div class="collapse" id="advancedFilters">
                 <hr class="my-3">
                 <div class="row g-3">
-                    <div class="col-md-3">
+                    <!-- 길이 필터 -->
+                    <div class="col-md-2">
                         <label class="form-label small">길이 (최소)</label>
                         <input type="number" name="min_length" class="form-control form-control-sm"
                                placeholder="예: 3" min="1" max="50" value="{{ min_length or '' }}">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label small">길이 (최대)</label>
                         <input type="number" name="max_length" class="form-control form-control-sm"
                                placeholder="예: 8" min="1" max="50" value="{{ max_length or '' }}">
                     </div>
+                    <!-- 만료일 범위 -->
+                    <div class="col-md-2">
+                        <label class="form-label small">만료일 (시작)</label>
+                        <input type="date" name="expiry_start" class="form-control form-control-sm"
+                               value="{{ expiry_start or '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">만료일 (종료)</label>
+                        <input type="date" name="expiry_end" class="form-control form-control-sm"
+                               value="{{ expiry_end or '' }}">
+                    </div>
+                    <!-- 예상가 범위 -->
+                    <div class="col-md-2">
+                        <label class="form-label small">예상가 (최소, $)</label>
+                        <input type="number" name="min_value" class="form-control form-control-sm"
+                               placeholder="예: 100" min="0" value="{{ min_value or '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">예상가 (최대, $)</label>
+                        <input type="number" name="max_value" class="form-control form-control-sm"
+                               placeholder="예: 5000" min="0" value="{{ max_value or '' }}">
+                    </div>
+                </div>
+                <div class="row g-3 mt-2">
+                    <!-- 정렬 -->
                     <div class="col-md-4">
                         <label class="form-label small">정렬</label>
                         <select name="sort" class="form-select form-select-sm">
@@ -157,6 +183,8 @@
                             <option value="expiry_desc" {% if sort == 'expiry_desc' %}selected{% endif %}>만료 늦은순</option>
                             <option value="length_asc" {% if sort == 'length_asc' %}selected{% endif %}>길이 짧은순</option>
                             <option value="length_desc" {% if sort == 'length_desc' %}selected{% endif %}>길이 긴순</option>
+                            <option value="value_desc" {% if sort == 'value_desc' %}selected{% endif %}>예상가 높은순</option>
+                            <option value="value_asc" {% if sort == 'value_asc' %}selected{% endif %}>예상가 낮은순</option>
                             <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>이름 오름차순</option>
                             <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>이름 내림차순</option>
                         </select>
@@ -173,7 +201,7 @@
 </div>
 
 <!-- 검색 결과 정보 -->
-{% if search or tld or min_score or expiry or min_length or max_length %}
+{% if search or tld or min_score or expiry or min_length or max_length or expiry_start or expiry_end or min_value or max_value %}
 <div class="alert alert-info d-flex justify-content-between align-items-center mb-4">
     <div>
         <i class="bi bi-info-circle"></i>
@@ -183,6 +211,8 @@
         {% if min_score %}<span class="badge bg-danger ms-2">{{ min_score }}+ 점</span>{% endif %}
         {% if expiry %}<span class="badge bg-warning text-dark ms-2">{{ expiry }}</span>{% endif %}
         {% if min_length or max_length %}<span class="badge bg-info ms-2">{{ min_length or '?' }}-{{ max_length or '?' }}자</span>{% endif %}
+        {% if expiry_start or expiry_end %}<span class="badge bg-success ms-2">{{ expiry_start or '?' }} ~ {{ expiry_end or '?' }}</span>{% endif %}
+        {% if min_value or max_value %}<span class="badge bg-purple ms-2" style="background-color: #6f42c1;">${{ min_value or '?' }} - ${{ max_value or '?' }}</span>{% endif %}
     </div>
     <a href="/" class="btn btn-sm btn-outline-info">필터 초기화</a>
 </div>
@@ -288,15 +318,18 @@
         </small>
         <nav>
             <ul class="pagination pagination-sm mb-0">
+                {# 필터 쿼리 문자열 매크로 #}
+                {% set filter_params %}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if expiry_start %}&expiry_start={{ expiry_start }}{% endif %}{% if expiry_end %}&expiry_end={{ expiry_end }}{% endif %}{% if min_value %}&min_value={{ min_value }}{% endif %}{% if max_value %}&max_value={{ max_value }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}{% endset %}
+
                 {# 이전 페이지 #}
                 {% if page > 1 %}
                 <li class="page-item">
-                    <a class="page-link" href="/?page=1{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                    <a class="page-link" href="/?page=1{{ filter_params }}">
                         <i class="bi bi-chevron-double-left"></i>
                     </a>
                 </li>
                 <li class="page-item">
-                    <a class="page-link" href="/?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                    <a class="page-link" href="/?page={{ page - 1 }}{{ filter_params }}">
                         <i class="bi bi-chevron-left"></i>
                     </a>
                 </li>
@@ -308,7 +341,7 @@
 
                 {% for p in range(start_page, end_page + 1) %}
                 <li class="page-item {% if p == page %}active{% endif %}">
-                    <a class="page-link" href="/?page={{ p }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                    <a class="page-link" href="/?page={{ p }}{{ filter_params }}">
                         {{ p }}
                     </a>
                 </li>
@@ -317,12 +350,12 @@
                 {# 다음 페이지 #}
                 {% if page < total_pages %}
                 <li class="page-item">
-                    <a class="page-link" href="/?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                    <a class="page-link" href="/?page={{ page + 1 }}{{ filter_params }}">
                         <i class="bi bi-chevron-right"></i>
                     </a>
                 </li>
                 <li class="page-item">
-                    <a class="page-link" href="/?page={{ total_pages }}{% if search %}&search={{ search }}{% endif %}{% if tld %}&tld={{ tld }}{% endif %}{% if min_score %}&min_score={{ min_score }}{% endif %}{% if expiry %}&expiry={{ expiry }}{% endif %}{% if min_length %}&min_length={{ min_length }}{% endif %}{% if max_length %}&max_length={{ max_length }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
+                    <a class="page-link" href="/?page={{ total_pages }}{{ filter_params }}">
                         <i class="bi bi-chevron-double-right"></i>
                     </a>
                 </li>

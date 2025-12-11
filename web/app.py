@@ -64,6 +64,10 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
         expiry: Optional[str] = None,
         min_length: Optional[str] = Query(default=None),
         max_length: Optional[str] = Query(default=None),
+        expiry_start: Optional[str] = Query(default=None),
+        expiry_end: Optional[str] = Query(default=None),
+        min_value: Optional[str] = Query(default=None),
+        max_value: Optional[str] = Query(default=None),
         sort: str = "score_desc"
     ):
         """메인 페이지 - 도메인 목록"""
@@ -74,6 +78,10 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
         min_score_int = int(min_score) if min_score and min_score.strip() else None
         min_length_int = int(min_length) if min_length and min_length.strip() else None
         max_length_int = int(max_length) if max_length and max_length.strip() else None
+        min_value_int = int(min_value) if min_value and min_value.strip() else None
+        max_value_int = int(max_value) if max_value and max_value.strip() else None
+        expiry_start_str = expiry_start.strip() if expiry_start and expiry_start.strip() else None
+        expiry_end_str = expiry_end.strip() if expiry_end and expiry_end.strip() else None
 
         # 정렬 옵션
         sort_options = {
@@ -85,10 +93,12 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             "length_desc": "length DESC, total_score DESC",
             "name_asc": "name ASC",
             "name_desc": "name DESC",
+            "value_desc": "estimated_value DESC, total_score DESC",
+            "value_asc": "estimated_value ASC",
         }
         order_by = sort_options.get(sort, "total_score DESC, expiry_date ASC")
 
-        # 만료일 필터
+        # 만료일 필터 (기존 단축 필터)
         days_until_expiry = None
         if expiry == "today":
             days_until_expiry = 0
@@ -108,6 +118,10 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             days_until_expiry=days_until_expiry,
             min_length=min_length_int,
             max_length=max_length_int,
+            expiry_start=expiry_start_str,
+            expiry_end=expiry_end_str,
+            min_value=min_value_int,
+            max_value=max_value_int,
         )
 
         # 총 개수 (페이지네이션용)
@@ -118,6 +132,10 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             days_until_expiry=days_until_expiry,
             min_length=min_length_int,
             max_length=max_length_int,
+            expiry_start=expiry_start_str,
+            expiry_end=expiry_end_str,
+            min_value=min_value_int,
+            max_value=max_value_int,
         )
         total_pages = (total_count + per_page - 1) // per_page
 
@@ -140,6 +158,10 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             "expiry": expiry,
             "min_length": min_length_int,
             "max_length": max_length_int,
+            "expiry_start": expiry_start_str,
+            "expiry_end": expiry_end_str,
+            "min_value": min_value_int,
+            "max_value": max_value_int,
             "sort": sort,
             "available_tlds": available_tlds,
             "settings": settings
@@ -539,14 +561,19 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             # 크롤링 스케줄
             "crawl_full_enabled": True,
             "crawl_full_time": "06:00",
+            "crawl_full_days": 30,  # 전체 스캔 만료 기간 (일)
             "crawl_week_enabled": True,
             "crawl_week_interval_hours": 3,
+            "crawl_week_days": 7,  # 주간 스캔 만료 기간 (일)
             "crawl_day_enabled": True,
             "crawl_day_interval_minutes": 30,
             # 데이터 소스
             "use_expireddomains": settings.use_expireddomains,
             "use_alternative_sources": settings.use_alternative_sources,
             "alternative_sources": settings.alternative_sources,
+            # 가용성 체크
+            "check_availability": settings.check_availability,
+            "availability_concurrency": 3,
             # 도메인 필터
             "min_domain_length": 3,
             "max_domain_length": 12,
@@ -608,14 +635,19 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
         # 크롤링 스케줄
         crawl_full_enabled: Optional[str] = Form(None),
         crawl_full_time: Optional[str] = Form(None),
+        crawl_full_days: Optional[str] = Form(None),
         crawl_week_enabled: Optional[str] = Form(None),
         crawl_week_interval_hours: Optional[str] = Form(None),
+        crawl_week_days: Optional[str] = Form(None),
         crawl_day_enabled: Optional[str] = Form(None),
         crawl_day_interval_minutes: Optional[str] = Form(None),
         # 데이터 소스
         use_expireddomains: Optional[str] = Form(None),
         use_alternative_sources: Optional[str] = Form(None),
         alternative_sources: Optional[str] = Form(None),
+        # 가용성 체크
+        check_availability: Optional[str] = Form(None),
+        availability_concurrency: Optional[str] = Form(None),
         # 도메인 필터
         min_domain_length: Optional[str] = Form(None),
         max_domain_length: Optional[str] = Form(None),
@@ -637,10 +669,14 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             current["crawl_full_enabled"] = crawl_full_enabled == "true"
         if crawl_full_time is not None and crawl_full_time.strip():
             current["crawl_full_time"] = crawl_full_time.strip()
+        if crawl_full_days is not None and crawl_full_days.strip():
+            current["crawl_full_days"] = int(crawl_full_days)
         if crawl_week_enabled is not None:
             current["crawl_week_enabled"] = crawl_week_enabled == "true"
         if crawl_week_interval_hours is not None and crawl_week_interval_hours.strip():
             current["crawl_week_interval_hours"] = int(crawl_week_interval_hours)
+        if crawl_week_days is not None and crawl_week_days.strip():
+            current["crawl_week_days"] = int(crawl_week_days)
         if crawl_day_enabled is not None:
             current["crawl_day_enabled"] = crawl_day_enabled == "true"
         if crawl_day_interval_minutes is not None and crawl_day_interval_minutes.strip():
@@ -653,6 +689,12 @@ def create_app(db: Database, sniper: "DomainSniper" = None) -> FastAPI:
             current["use_alternative_sources"] = use_alternative_sources == "true"
         if alternative_sources is not None:
             current["alternative_sources"] = alternative_sources.strip()
+
+        # 가용성 체크 업데이트
+        if check_availability is not None:
+            current["check_availability"] = check_availability == "true"
+        if availability_concurrency is not None and availability_concurrency.strip():
+            current["availability_concurrency"] = max(1, min(5, int(availability_concurrency)))
 
         # 도메인 필터 업데이트
         if min_domain_length is not None and min_domain_length.strip():

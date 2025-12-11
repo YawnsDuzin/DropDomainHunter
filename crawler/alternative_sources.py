@@ -3,10 +3,10 @@ Domain Sniper - 대체 데이터 소스 크롤러
 ExpiredDomains.net 외의 무료 데이터 소스에서 만료 도메인을 수집합니다.
 
 지원하는 소스:
-- DesktopCatcher: COM/NET/ORG PendingDelete 리스트
-- EstiBot: Verisign PendingDelete 원본 리스트
-- SnapNames: 삭제 예정 도메인 CSV
-- Dynadot: 백오더 도메인 CSV
+- SnapNames: 삭제 예정 도메인 CSV (무료)
+
+비활성화된 소스:
+- EstiBot: 캡차/로그인 필요, 유료 API 접근만 가능 (무료 크롤링 불가)
 """
 
 import asyncio
@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from typing import List, Dict, Any, Optional
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import structlog
 
 from .parser import DomainParser
@@ -43,12 +43,6 @@ class AlternativeSourcesCrawler:
             "type": "csv",
             "description": "삭제 예정 도메인 CSV",
         },
-        "dynadot": {
-            "name": "Dynadot",
-            "url": "https://www.dynadot.com/market/backorder/backorders.csv",
-            "type": "csv",
-            "description": "백오더 도메인 CSV",
-        },
         "namejet": {
             "name": "NameJet",
             "url": "https://www.namejet.com/download/",
@@ -57,9 +51,28 @@ class AlternativeSourcesCrawler:
         },
     }
 
-    def __init__(self):
+    def __init__(self, filter_settings: Optional[Dict[str, Any]] = None):
+        """
+        크롤러 초기화
+
+        Args:
+            filter_settings: 도메인 필터 설정 (선택)
+                - min_domain_length: 최소 도메인 길이
+                - max_domain_length: 최대 도메인 길이
+                - allowed_tlds: 허용된 TLD 리스트
+                - allow_numbers: 숫자 허용 여부
+                - allow_hyphens: 하이픈 허용 여부
+        """
         self.client: Optional[httpx.AsyncClient] = None
         self.parser = DomainParser()
+
+        # 필터 설정 (런타임 설정 > config 기본값)
+        self.filter_settings = filter_settings or {}
+        self.min_domain_length = self.filter_settings.get("min_domain_length", settings.min_domain_length)
+        self.max_domain_length = self.filter_settings.get("max_domain_length", settings.max_domain_length)
+        self.allowed_tlds = self.filter_settings.get("allowed_tlds", settings.tld_list)
+        self.allow_numbers = self.filter_settings.get("allow_numbers", settings.allow_numbers)
+        self.allow_hyphens = self.filter_settings.get("allow_hyphens", settings.allow_hyphens)
 
     async def __aenter__(self):
         await self.init_client()
@@ -70,14 +83,25 @@ class AlternativeSourcesCrawler:
 
     async def init_client(self) -> None:
         """HTTP 클라이언트 초기화"""
+        # 연결/읽기 타임아웃 분리 설정
+        timeout = httpx.Timeout(
+            connect=30.0,  # 연결 타임아웃
+            read=60.0,     # 읽기 타임아웃
+            write=30.0,    # 쓰기 타임아웃
+            pool=30.0      # 풀 타임아웃
+        )
         self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(60.0),
+            timeout=timeout,
             headers={
-                "User-Agent": settings.user_agent,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Cache-Control": "no-cache",
             },
             follow_redirects=True,
+            http2=False,  # HTTP/2 비활성화 (일부 서버 호환성)
         )
         logger.info("alternative_sources_client_initialized")
 
@@ -88,33 +112,53 @@ class AlternativeSourcesCrawler:
             logger.info("alternative_sources_client_closed")
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
+        retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError))
     )
     async def _fetch(self, url: str) -> str:
         """URL에서 데이터 가져오기"""
-        await asyncio.sleep(random.uniform(1, 3))  # Rate limit 방지
-        response = await self.client.get(url)
-        response.raise_for_status()
-        return response.text
+        await asyncio.sleep(random.uniform(2, 5))  # Rate limit 방지 (더 긴 대기)
+        try:
+            response = await self.client.get(url)
+            response.raise_for_status()
+            return response.text
+        except httpx.ConnectError as e:
+            logger.warning("fetch_connection_error", url=url, error=str(e))
+            raise
+        except httpx.TimeoutException as e:
+            logger.warning("fetch_timeout_error", url=url, error=str(e))
+            raise
 
+    @retry(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
+        retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError))
+    )
     async def _fetch_binary(self, url: str) -> bytes:
         """바이너리 데이터 가져오기"""
-        await asyncio.sleep(random.uniform(1, 3))
-        response = await self.client.get(url)
-        response.raise_for_status()
-        return response.content
+        await asyncio.sleep(random.uniform(2, 5))
+        try:
+            response = await self.client.get(url)
+            response.raise_for_status()
+            return response.content
+        except httpx.ConnectError as e:
+            logger.warning("fetch_binary_connection_error", url=url, error=str(e))
+            raise
+        except httpx.TimeoutException as e:
+            logger.warning("fetch_binary_timeout_error", url=url, error=str(e))
+            raise
 
     def _filter_domain(self, name: str, tld: str) -> bool:
-        """도메인 필터링"""
+        """도메인 필터링 (인스턴스 설정 사용)"""
         return self.parser.is_valid_domain(
             name,
             tld,
-            min_length=settings.min_domain_length,
-            max_length=settings.max_domain_length,
-            allowed_tlds=settings.tld_list,
-            allow_numbers=settings.allow_numbers,
-            allow_hyphens=settings.allow_hyphens
+            min_length=self.min_domain_length,
+            max_length=self.max_domain_length,
+            allowed_tlds=self.allowed_tlds,
+            allow_numbers=self.allow_numbers,
+            allow_hyphens=self.allow_hyphens
         )
 
     async def crawl_snapnames(self) -> List[Dict[str, Any]]:
@@ -152,93 +196,40 @@ class AlternativeSourcesCrawler:
                     continue
 
                 # 만료일 추출 (있는 경우)
-                expiry_date = date.today() + timedelta(days=5)  # 기본값
+                expiry_date = date.today() + timedelta(days=5)  # 기본값: 5일 후
                 if len(row) > 1:
                     try:
-                        # 날짜 형식 파싱 시도
                         date_str = row[1].strip()
-                        if date_str:
+                        if date_str and len(date_str) >= 8:  # 최소한 YYYYMMDD 형식
                             from dateutil import parser as date_parser
-                            expiry_date = date_parser.parse(date_str).date()
+                            parsed_date = date_parser.parse(date_str).date()
+                            # 합리적인 날짜 범위 검증 (오늘 -30일 ~ +365일)
+                            min_valid_date = date.today() - timedelta(days=30)
+                            max_valid_date = date.today() + timedelta(days=365)
+                            if min_valid_date <= parsed_date <= max_valid_date:
+                                expiry_date = parsed_date
+                            else:
+                                # 범위 밖 날짜는 기본값 사용
+                                expiry_date = date.today() + timedelta(days=5)
                     except Exception:
-                        pass
+                        # 파싱 실패 시 기본값 유지
+                        expiry_date = date.today() + timedelta(days=5)
 
-                domains.append({
-                    "name": name,
-                    "tld": tld,
-                    "full_name": full_domain,
-                    "length": len(name),
-                    "expiry_date": expiry_date,
-                    "source": "snapnames",
-                })
+                # 만료일 필터: 오늘 이후 만료되는 도메인만 수집
+                if expiry_date >= date.today():
+                    domains.append({
+                        "name": name,
+                        "tld": tld,
+                        "full_name": full_domain,
+                        "length": len(name),
+                        "expiry_date": expiry_date,
+                        "source": "snapnames",
+                    })
 
-            logger.info("snapnames_crawled", count=len(domains))
+            logger.info("snapnames_crawled", count=len(domains), total_parsed=reader.line_num)
 
         except Exception as e:
             logger.error("snapnames_crawl_error", error=str(e))
-
-        return domains
-
-    async def crawl_dynadot(self) -> List[Dict[str, Any]]:
-        """
-        Dynadot 백오더 도메인 크롤링
-
-        Returns:
-            도메인 정보 리스트
-        """
-        domains = []
-
-        try:
-            logger.info("crawling_dynadot")
-            content = await self._fetch(self.SOURCES["dynadot"]["url"])
-
-            # CSV 파싱
-            reader = csv.reader(io.StringIO(content))
-            header = None
-
-            for row in reader:
-                if not row:
-                    continue
-
-                # 헤더 행 스킵
-                if header is None:
-                    if any("domain" in col.lower() for col in row):
-                        header = [col.lower() for col in row]
-                        continue
-                    header = []
-
-                # 도메인 추출 (첫 번째 컬럼 또는 domain 컬럼)
-                full_domain = row[0].strip().lower()
-                if not full_domain or "." not in full_domain:
-                    continue
-
-                # 도메인 파싱
-                parts = full_domain.rsplit(".", 1)
-                if len(parts) != 2:
-                    continue
-
-                name, tld = parts[0], parts[1]
-
-                # 필터링
-                if not self._filter_domain(name, tld):
-                    continue
-
-                # 만료일 (Dynadot은 보통 5일 이내)
-                expiry_date = date.today() + timedelta(days=5)
-
-                domains.append({
-                    "name": name,
-                    "tld": tld,
-                    "full_name": full_domain,
-                    "length": len(name),
-                    "expiry_date": expiry_date,
-                    "source": "dynadot",
-                })
-
-            logger.info("dynadot_crawled", count=len(domains))
-
-        except Exception as e:
-            logger.error("dynadot_crawl_error", error=str(e))
 
         return domains
 
@@ -250,10 +241,12 @@ class AlternativeSourcesCrawler:
             도메인 정보 리스트
         """
         domains = []
+        estibot_url = self.SOURCES["estibot"]["url"]
 
         try:
-            logger.info("crawling_estibot")
-            html = await self._fetch(self.SOURCES["estibot"]["url"])
+            logger.info("crawling_estibot", url=estibot_url)
+            html = await self._fetch(estibot_url)
+            logger.info("estibot_page_fetched", html_length=len(html))
 
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(html, "lxml")
@@ -264,6 +257,12 @@ class AlternativeSourcesCrawler:
                 href = link.get("href", "")
                 if ".txt" in href or "pendingdelete" in href.lower():
                     download_links.append(href)
+
+            logger.info("estibot_download_links_found", count=len(download_links), links=download_links[:5])
+
+            if not download_links:
+                logger.warning("estibot_no_download_links", reason="페이지에서 다운로드 링크를 찾을 수 없습니다")
+                return domains
 
             # 텍스트 파일 다운로드 및 파싱
             for link in download_links[:3]:  # 최대 3개 파일
@@ -325,12 +324,12 @@ class AlternativeSourcesCrawler:
         seen = set()
 
         # 크롤링할 소스 결정
+        # EstiBot은 캡차/로그인 필요로 기본 비활성화
         if sources is None:
-            sources = ["snapnames", "dynadot", "estibot"]
+            sources = ["snapnames"]
 
         crawl_methods = {
             "snapnames": self.crawl_snapnames,
-            "dynadot": self.crawl_dynadot,
             "estibot": self.crawl_estibot,
         }
 
@@ -410,14 +409,43 @@ class MultiSourceCrawler:
     - 개별 소스 실패 시 다른 소스 계속 실행
     - Anti-blocking 시스템 통합
     - 재시도 로직
+    - 런타임 도메인 필터 설정 지원
     """
 
-    def __init__(self, use_anti_blocking: bool = True):
+    def __init__(self, use_anti_blocking: bool = True, filter_settings: Optional[Dict[str, Any]] = None):
+        """
+        크롤러 초기화
+
+        Args:
+            use_anti_blocking: Anti-blocking 시스템 사용 여부
+            filter_settings: 도메인 필터 설정 (선택)
+                - min_domain_length: 최소 도메인 길이
+                - max_domain_length: 최대 도메인 길이
+                - allowed_tlds: 허용된 TLD 리스트
+                - allow_numbers: 숫자 허용 여부
+                - allow_hyphens: 하이픈 허용 여부
+        """
         from .expired_domains import ExpiredDomainsCrawler
-        self.expired_domains = ExpiredDomainsCrawler()
-        self.alternative = AlternativeSourcesCrawler()
+
+        # 필터 설정 저장
+        self.filter_settings = filter_settings
+
+        # 크롤러들에 필터 설정 전달
+        self.expired_domains = ExpiredDomainsCrawler(filter_settings=filter_settings)
+        self.alternative = AlternativeSourcesCrawler(filter_settings=filter_settings)
         self.parser = DomainParser()
         self.use_anti_blocking = use_anti_blocking
+
+        # 필터 설정 로깅
+        if filter_settings:
+            logger.info(
+                "multi_source_crawler_filter_settings",
+                min_length=filter_settings.get("min_domain_length"),
+                max_length=filter_settings.get("max_domain_length"),
+                tlds=filter_settings.get("allowed_tlds"),
+                allow_numbers=filter_settings.get("allow_numbers"),
+                allow_hyphens=filter_settings.get("allow_hyphens")
+            )
 
         # Anti-blocking 매니저 (선택적)
         self.anti_blocking = None
@@ -432,16 +460,15 @@ class MultiSourceCrawler:
         self._stats = {
             "expireddomains": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
             "snapnames": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
-            "dynadot": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
-            "estibot": {"success": 0, "failed": 0, "domains": 0, "last_error": None},
+            "estibot": {"success": 0, "failed": 0, "domains": 0, "last_error": "캡차/로그인 필요 - 기본 비활성화"},
         }
 
         # 소스 건강 상태
+        # EstiBot은 캡차/로그인 필요로 기본 비활성화
         self._source_health = {
             "expireddomains": True,
             "snapnames": True,
-            "dynadot": True,
-            "estibot": True,
+            "estibot": False,  # 캡차/로그인 필요
         }
 
         self._initialized = False
@@ -537,7 +564,6 @@ class MultiSourceCrawler:
         """개별 대체 소스 크롤링 (내부)"""
         crawl_methods = {
             "snapnames": self.alternative.crawl_snapnames,
-            "dynadot": self.alternative.crawl_dynadot,
             "estibot": self.alternative.crawl_estibot,
         }
 
@@ -633,8 +659,9 @@ class MultiSourceCrawler:
 
         # 2. 대체 소스 크롤링
         if use_alternative:
+            # EstiBot은 캡차/로그인 필요로 기본 비활성화
             if alternative_sources is None:
-                alternative_sources = ["snapnames", "dynadot", "estibot"]
+                alternative_sources = ["snapnames"]
 
             if progress_callback:
                 await progress_callback(40, "대체 소스 크롤링 시작...")
@@ -731,10 +758,11 @@ class MultiSourceCrawler:
             self._update_stats("expireddomains", False, error=str(e))
             logger.error("pending_delete_expireddomains_error", error=str(e))
 
-        # 대체 소스 (EstiBot은 pending delete 전문)
+        # 대체 소스
+        # EstiBot은 캡차/로그인 필요로 비활성화 - SnapNames만 사용
         if use_alternative:
             if alternative_sources is None:
-                alternative_sources = ["estibot"]  # EstiBot은 PendingDelete 전문
+                alternative_sources = ["snapnames"]
 
             for source in alternative_sources:
                 domains = await self._crawl_alternative_source(source)
@@ -802,12 +830,6 @@ if __name__ == "__main__":
             print("Testing SnapNames...")
             domains = await crawler.crawl_snapnames()
             print(f"  Found {len(domains)} domains from SnapNames")
-            if domains:
-                print(f"  Sample: {domains[0]}")
-
-            print("\nTesting Dynadot...")
-            domains = await crawler.crawl_dynadot()
-            print(f"  Found {len(domains)} domains from Dynadot")
             if domains:
                 print(f"  Sample: {domains[0]}")
 

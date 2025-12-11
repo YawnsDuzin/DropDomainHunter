@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     use_expireddomains: bool = Field(default=True, description="ExpiredDomains.net 사용")
     use_alternative_sources: bool = Field(default=True, description="대체 소스 사용")
     alternative_sources: str = Field(
-        default="snapnames,dynadot,estibot",
+        default="snapnames,estibot",
         description="사용할 대체 소스 (쉼표로 구분)"
     )
 

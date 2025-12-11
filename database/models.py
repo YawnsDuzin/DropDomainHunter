@@ -138,7 +138,7 @@ class Database:
         """스키마 초기화"""
         schema_path = Path(__file__).parent / "schema.sql"
         if schema_path.exists():
-            schema = schema_path.read_text()
+            schema = schema_path.read_text(encoding="utf-8")
             await self._connection.executescript(schema)
             await self._connection.commit()
             logger.info("database_schema_initialized")
@@ -218,6 +218,10 @@ class Database:
         search: Optional[str] = None,
         min_length: Optional[int] = None,
         max_length: Optional[int] = None,
+        expiry_start: Optional[str] = None,
+        expiry_end: Optional[str] = None,
+        min_value: Optional[int] = None,
+        max_value: Optional[int] = None,
     ) -> List[Domain]:
         """도메인 목록 조회"""
         conditions = []
@@ -251,6 +255,22 @@ class Database:
             conditions.append("length <= ?")
             params.append(max_length)
 
+        if expiry_start:
+            conditions.append("expiry_date >= ?")
+            params.append(expiry_start)
+
+        if expiry_end:
+            conditions.append("expiry_date <= ?")
+            params.append(expiry_end)
+
+        if min_value is not None:
+            conditions.append("estimated_value >= ?")
+            params.append(min_value)
+
+        if max_value is not None:
+            conditions.append("estimated_value <= ?")
+            params.append(max_value)
+
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
         query = f"""
@@ -273,6 +293,10 @@ class Database:
         search: Optional[str] = None,
         min_length: Optional[int] = None,
         max_length: Optional[int] = None,
+        expiry_start: Optional[str] = None,
+        expiry_end: Optional[str] = None,
+        min_value: Optional[int] = None,
+        max_value: Optional[int] = None,
     ) -> int:
         """필터 조건에 맞는 총 개수 조회"""
         conditions = []
@@ -305,6 +329,22 @@ class Database:
         if max_length is not None:
             conditions.append("length <= ?")
             params.append(max_length)
+
+        if expiry_start:
+            conditions.append("expiry_date >= ?")
+            params.append(expiry_start)
+
+        if expiry_end:
+            conditions.append("expiry_date <= ?")
+            params.append(expiry_end)
+
+        if min_value is not None:
+            conditions.append("estimated_value >= ?")
+            params.append(min_value)
+
+        if max_value is not None:
+            conditions.append("estimated_value <= ?")
+            params.append(max_value)
 
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
@@ -408,13 +448,21 @@ class Database:
 
     def _row_to_domain(self, row: aiosqlite.Row) -> Domain:
         """Row를 Domain 객체로 변환"""
+        # 만료일 파싱 (빈 문자열 및 잘못된 형식 처리)
+        expiry_date = None
+        if row["expiry_date"] and str(row["expiry_date"]).strip():
+            try:
+                expiry_date = date.fromisoformat(str(row["expiry_date"]))
+            except (ValueError, TypeError):
+                expiry_date = None
+
         return Domain(
             id=row["id"],
             name=row["name"],
             tld=row["tld"],
             full_name=row["full_name"],
             length=row["length"],
-            expiry_date=date.fromisoformat(row["expiry_date"]) if row["expiry_date"] else None,
+            expiry_date=expiry_date,
             length_score=row["length_score"],
             keyword_score=row["keyword_score"],
             pattern_score=row["pattern_score"],
